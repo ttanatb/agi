@@ -22,6 +22,7 @@ import static com.google.gapid.widgets.Widgets.createGroup;
 import static com.google.gapid.widgets.Widgets.createComposite;
 import static com.google.gapid.widgets.Widgets.createTextbox;
 import static java.util.logging.Level.WARNING;
+import static java.util.logging.Level.SEVERE;
 
 import com.google.gapid.models.Devices.DeviceValidationResult;
 import com.google.gapid.models.Devices.DeviceCaptureInfo;
@@ -36,11 +37,13 @@ import com.google.gapid.widgets.LoadingIndicator;
 import com.google.gapid.widgets.Widgets;
 import com.google.gapid.widgets.Theme;
 import com.google.gapid.util.Messages;
+import com.google.gapid.util.OS;
 import com.google.gapid.util.URLs;
 
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Listener;
 import org.eclipse.jface.layout.GridDataFactory;
 import org.eclipse.swt.program.Program;
 import org.eclipse.swt.graphics.Point;
@@ -52,6 +55,8 @@ import org.eclipse.swt.widgets.ExpandBar;
 import org.eclipse.swt.widgets.ExpandItem;
 import org.eclipse.swt.SWT;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.logging.Logger;
 
@@ -65,6 +70,10 @@ public class DeviceValidationView extends Composite {
     private boolean validationPassed;
     private LoadingIndicator.Widget statusLoader;
     private Link statusText;
+
+    private Group extraDetailsGroup;
+    private Text errText;
+    private Link traceLink;
 
     public DeviceValidationView(Composite parent, Models models, Widgets widgets) {
         super(parent, SWT.NONE);
@@ -85,14 +94,24 @@ public class DeviceValidationView extends Composite {
         });
         statusText.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
 
+        // Extra details (i.e. error message & help text)
+        errText = withLayoutData(createTextbox(extraDetailsGroup, ""),
+                     new GridData(SWT.FILL, SWT.FILL, true, true));
+        traceLink = createLink(extraDetailsGroup, "", e -> {
+          // Intentionally empty
+        });
+        traceLink.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
+
         statusLoader.setVisible(false);
         statusText.setVisible(false);
+        extraDetailsGroup.setVisible(false);
     }
 
     public void ValidateDevice(DeviceCaptureInfo deviceInfo) {
       if (deviceInfo == null) {
         statusLoader.setVisible(false);
         statusText.setVisible(false);
+        extraDetailsGroup.setVisible(false);
         return;
       }
 
@@ -142,19 +161,34 @@ public class DeviceValidationView extends Composite {
     }
 
     private void setValidationStatus(DeviceValidationResult result) {
-        if (result.skipped) {
-            statusLoader.updateStatus(true);
-            statusLoader.stopLoading();
-            statusText.setText("Device support validation skipped.");
-            validationPassed = true;
-          } else {
-            statusLoader.updateStatus(result.passed);
-            statusLoader.stopLoading();
-            statusText.setText("Device support validation " 
-                + (result.passed ? "passed." : "failed. " + Messages.VALIDATION_FAILED_LANDING_PAGE));
-            validationPassed = result.passed;
-          }
-          notifyListeners(SWT.Modify, new Event());
+      boolean passedOrSkipped = result.passed || result.skipped;
+      statusLoader.stopLoading();
+      statusLoader.updateStatus(passedOrSkipped);
+      validationPassed = passedOrSkipped;
+      statusText.setText("Device support validation " + result.toString() + ".");
+      extraDetailsGroup.setVisible(!passedOrSkipped);
+      notifyListeners(SWT.Modify, new Event());
+
+      if (passedOrSkipped) {
+        return;
+      }
+
+      // TODO: add error text and help text
+
+      for (Listener listener : traceLink.getListeners(SWT.Selection)) {
+        traceLink.removeListener(SWT.Selection, listener);
+      }
+      traceLink.addListener(SWT.Selection, openFileAtPath(result.tracePath));
+    }
+
+    private Listener openFileAtPath(String path) {
+      return e -> {
+        try {
+          OS.openFileInSystemExplorer(new File(path));
+        } catch (IOException exception) {
+          LOG.log(SEVERE, "Failed to open log directory in system explorer", exception);
+        }
+      };
     }
 
     public boolean PassesValidation() {

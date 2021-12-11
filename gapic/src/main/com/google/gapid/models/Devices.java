@@ -426,35 +426,38 @@ public class Devices {
   }
 
   public static class DeviceValidationResult {
-    public static final DeviceValidationResult PASSED = new DeviceValidationResult(null, true, false);
-    public static final DeviceValidationResult FAILED = new DeviceValidationResult(null, false, false);
-    public static final DeviceValidationResult SKIPPED = new DeviceValidationResult(null, true, true);
+    public static final DeviceValidationResult PASSED = new DeviceValidationResult(null, null, "", true, false);
+    public static final DeviceValidationResult FAILED = new DeviceValidationResult(null, null, "", false, false);
+    public static final DeviceValidationResult SKIPPED = new DeviceValidationResult(null, null, "", true, true);
 
-    public final Service.Error error;
+    public final Service.Error validationErr;
+    public final Service.Error downloadErr;
+    public final String tracePath;
     public final boolean passed;
     public final boolean skipped;
 
-    public DeviceValidationResult(Service.Error error, boolean passed, boolean skipped) {
-      this.error = error;
+    public DeviceValidationResult(Service.Error validationErr, Service.Error downloadErr, String tracePath, boolean passed, boolean skipped) {
+      this.validationErr = validationErr;
+      this.downloadErr = downloadErr;
+      this.tracePath = tracePath;
       this.passed = passed;
       this.skipped = skipped;
     }
 
     public DeviceValidationResult(Service.ValidateDeviceResponse r) {
-      this(r.getError(), !r.hasError(), false);
+      this(r.getError(), r.getDownloadError(), r.getTracePath(), !r.hasError(), false);
     }
 
     @Override
     public String toString() {
       if (this.skipped) {
-        return "Skipped";
+        return "skipped";
       } else if (this.passed) {
-        return "Passed";
+        return "passed";
       } else {
-        return "Failed";
+        return "failed";
       }
     }
-
   }
 
   private static class DeviceValidationCache {
