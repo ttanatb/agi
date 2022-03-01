@@ -25,6 +25,7 @@ import (
 	"github.com/google/gapid/core/event/task"
 	"github.com/google/gapid/core/os/device/bind"
 	gapii "github.com/google/gapid/gapii/client"
+	"github.com/google/gapid/gapis/api"
 	"github.com/google/gapid/gapis/api/sync"
 	"github.com/google/gapid/gapis/service"
 	"github.com/google/gapid/gapis/service/path"
@@ -75,10 +76,10 @@ type Tracer interface {
 	GetDevice() bind.Device
 	// ProcessProfilingData takes a buffer for a Perfetto trace and translates it into
 	// a ProfilingData
-	ProcessProfilingData(ctx context.Context, buffer *bytes.Buffer, capture *path.Capture, handleMapping map[uint64][]service.VulkanHandleMappingItem, syncData *sync.Data) (*service.ProfilingData, error)
+	ProcessProfilingData(ctx context.Context, buffer *bytes.Buffer, capture *path.Capture, staticAnalysisResult chan *api.StaticAnalysisProfileData, handleMapping map[uint64][]service.VulkanHandleMappingItem, syncData *sync.Data) (*service.ProfilingData, error)
 	// Validate validates the GPU profiling capabilities of the given device and returns
 	// an error if validation failed or the GPU profiling data is invalid.
-	Validate(ctx context.Context) error
+	Validate(ctx context.Context, enableLocalFiles bool) (*service.DeviceValidationResult, error)
 }
 
 // LayersFromOptions Parses the perfetto options, and returns the required layers
@@ -129,7 +130,6 @@ func GapiiOptions(o *service.TraceOptions) gapii.Options {
 
 	return gapii.Options{
 		o.ObserveFrameFrequency,
-		o.ObserveDrawFrequency,
 		o.StartFrame,
 		o.FramesToCapture,
 		time.Duration(o.Duration * float32(time.Second)),

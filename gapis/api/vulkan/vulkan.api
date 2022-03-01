@@ -73,6 +73,7 @@ import "extensions/ext_debug_report.api"
 import "extensions/ext_debug_utils.api"
 import "extensions/ext_pipeline_creation_feedback.api"
 import "extensions/amd_buffer_marker.api"
+import "extensions/khr_create_renderpass2.api"
 import "extensions/khr_dedicated_allocation.api"
 import "extensions/khr_display.api"
 import "extensions/khr_display_swapchain.api"
@@ -95,6 +96,7 @@ import "extensions/khr_external_semaphore_capabilities.api"
 import "extensions/khr_external_semaphore_fd.api"
 import "extensions/khr_variable_pointers.api"
 import "extensions/khr_sampler_ycbcr_conversion.api"
+import "extensions/ext_sampler_filter_minmax.api"
 import "extensions/amd_draw_indirect_count.api"
 import "extensions/khr_draw_indirect_count.api"
 import "extensions/khr_image_format_list.api"
@@ -257,6 +259,7 @@ sub ref!ExtensionSet supportedDeviceExtensions() {
   supported.ExtensionNames["VK_KHR_shader_draw_parameters"] = true
   supported.ExtensionNames["VK_KHR_relaxed_block_layout"] = true
   supported.ExtensionNames["VK_KHR_16bit_storage"] = true
+  supported.ExtensionNames["VK_KHR_create_renderpass2"] = true
   supported.ExtensionNames["VK_KHR_maintenance1"] = true
   supported.ExtensionNames["VK_KHR_maintenance2"] = true
   supported.ExtensionNames["VK_KHR_maintenance3"] = true
@@ -266,6 +269,7 @@ sub ref!ExtensionSet supportedDeviceExtensions() {
   supported.ExtensionNames["VK_KHR_sampler_ycbcr_conversion"] = true
   supported.ExtensionNames["VK_KHR_image_format_list"] = true
   supported.ExtensionNames["VK_KHR_sampler_mirror_clamp_to_edge"] = true
+  supported.ExtensionNames["VK_EXT_sampler_filter_minmax"] = true
   supported.ExtensionNames["VK_EXT_pipeline_creation_feedback"] = true
   supported.ExtensionNames["VK_EXT_scalar_block_layout"] = true
   supported.ExtensionNames["VK_EXT_hdr_metadata"] = true

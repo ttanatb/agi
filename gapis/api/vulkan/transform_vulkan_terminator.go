@@ -236,9 +236,18 @@ func (vtTransform *vulkanTerminator) cutCommandBuffer(ctx context.Context, id ap
 		numSubpasses := uint32(lrp.SubpassDescriptions().Len())
 		for i := 0; uint32(i) < numSubpasses-lsp-1; i++ {
 			extraCommands = append(extraCommands,
-				NewVkCmdNextSubpassArgsʳ(VkSubpassContents_VK_SUBPASS_CONTENTS_INLINE))
+				NewVkCmdNextSubpassXArgsʳ(
+					NewSubpassBeginInfoʳ(
+						VkSubpassContents_VK_SUBPASS_CONTENTS_INLINE,
+					),
+					NewSubpassEndInfoʳ(),
+					lrp.Version(),
+				))
 		}
-		extraCommands = append(extraCommands, NewVkCmdEndRenderPassArgsʳ())
+		extraCommands = append(extraCommands, NewVkCmdEndRenderPassXArgsʳ(
+			NewSubpassEndInfoʳ(),
+			lrp.Version(),
+		))
 	}
 	cmdBuffer := stateObject.CommandBuffers().Get(newCommandBuffers[lastCommandBuffer])
 	subIdx := make(api.SubCmdIdx, 0)
@@ -311,14 +320,14 @@ func resolveCurrentRenderPass2(ctx context.Context, s *api.GlobalState, submit *
 	l := s.MemoryLayout
 
 	walkCommandsCallback := func(o CommandReferenceʳ) {
-		switch o.Type() {
-		case CommandType_cmd_vkCmdBeginRenderPass:
-			t := c.CommandBuffers().Get(o.Buffer()).BufferCommands().VkCmdBeginRenderPass().Get(o.MapIndex())
-			lrp = c.RenderPasses().Get(t.RenderPass())
+		args := GetCommandArgs(ctx, o, GetState(s))
+		switch ar := args.(type) {
+		case VkCmdBeginRenderPassXArgsʳ:
+			lrp = c.RenderPasses().Get(ar.RenderPassBeginInfo().RenderPass())
 			subpass = 0
-		case CommandType_cmd_vkCmdNextSubpass:
+		case VkCmdNextSubpassXArgsʳ:
 			subpass++
-		case CommandType_cmd_vkCmdEndRenderPass:
+		case VkCmdEndRenderPassXArgsʳ:
 			lrp = NilRenderPassObjectʳ
 			subpass = 0
 		}
@@ -472,7 +481,7 @@ func rebuildCommandBuffer2(ctx context.Context,
 
 		// If we use AddCommand, it will check for the existence of the command buffer,
 		// which wont yet exist (because it hasn't been mutated yet)
-		commandBufferData, commandBufferCount := unpackMap(ctx, s, newCmdExecuteCommandsData.CommandBuffers())
+		commandBufferData, commandBufferCount := unpackDenseMap(ctx, s, newCmdExecuteCommandsData.CommandBuffers())
 		newExecSecCmds := cb.VkCmdExecuteCommands(commandBufferID,
 			commandBufferCount,
 			commandBufferData.Ptr(),

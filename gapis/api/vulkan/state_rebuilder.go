@@ -356,6 +356,14 @@ func (sb *stateBuilder) MustAllocWriteData(v ...interface{}) api.AllocResult {
 	return allocateResult
 }
 
+func (sb *stateBuilder) MustUnpackReadDenseMap(v interface{}) api.AllocResult {
+	allocateResult, _ := unpackDenseMap(sb.ctx, sb.newState, v)
+	sb.readMemories = append(sb.readMemories, &allocateResult)
+	rng := allocateResult.Range()
+	interval.Merge(&sb.memoryIntervals, interval.U64Span{rng.Base, rng.Base + rng.Size}, true)
+	return allocateResult
+}
+
 func (sb *stateBuilder) MustUnpackReadMap(v interface{}) api.AllocResult {
 	allocateResult, _ := unpackMap(sb.ctx, sb.newState, v)
 	sb.readMemories = append(sb.readMemories, &allocateResult)
@@ -364,8 +372,8 @@ func (sb *stateBuilder) MustUnpackReadMap(v interface{}) api.AllocResult {
 	return allocateResult
 }
 
-func (sb *stateBuilder) MustUnpackWriteMap(v interface{}) api.AllocResult {
-	allocateResult, _ := unpackMap(sb.ctx, sb.newState, v)
+func (sb *stateBuilder) MustUnpackWriteDenseMap(v interface{}) api.AllocResult {
+	allocateResult, _ := unpackDenseMap(sb.ctx, sb.newState, v)
 	sb.writeMemories = append(sb.writeMemories, &allocateResult)
 	rng := allocateResult.Range()
 	interval.Merge(&sb.memoryIntervals, interval.U64Span{rng.Base, rng.Base + rng.Size}, true)
@@ -585,7 +593,7 @@ func (sb *stateBuilder) createPhysicalDevices(Map VkPhysicalDeviceːPhysicalDevi
 			sb.write(sb.cb.VkGetPhysicalDeviceQueueFamilyProperties(
 				device,
 				NewU32ᶜᵖ(sb.MustAllocReadData(pd.QueueFamilyProperties().Len()).Ptr()),
-				NewVkQueueFamilyPropertiesᵖ(sb.MustUnpackWriteMap(pd.QueueFamilyProperties()).Ptr()),
+				NewVkQueueFamilyPropertiesᵖ(sb.MustUnpackWriteDenseMap(pd.QueueFamilyProperties()).Ptr()),
 			))
 		}
 	}
@@ -984,7 +992,7 @@ func (sb *stateBuilder) createDevice(d DeviceObjectʳ) {
 			NewVoidᶜᵖ(pNext),                   // pNext
 			0,                                  // flags
 			uint32(len(reorderedQueueCreates)), // queueCreateInfoCount
-			NewVkDeviceQueueCreateInfoᶜᵖ(sb.MustUnpackReadMap(reorderedQueueCreates).Ptr()), // pQueueCreateInfos
+			NewVkDeviceQueueCreateInfoᶜᵖ(sb.MustUnpackReadDenseMap(reorderedQueueCreates).Ptr()), // pQueueCreateInfos
 			uint32(len(enabledLayers)),                                                     // enabledLayerCount
 			NewCharᶜᵖᶜᵖ(sb.MustAllocReadData(enabledLayers).Ptr()),                         // ppEnabledLayerNames
 			uint32(len(enabledExtensions)),                                                 // enabledExtensionCount
@@ -1154,8 +1162,8 @@ func (sb *stateBuilder) createSwapchain(swp SwapchainObjectʳ) {
 			NewVkImageFormatListCreateInfoKHR(
 				VkStructureType_VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR, // sType
 				pNext, // pNext
-				uint32(swp.Info().ViewFormatList().ViewFormats().Len()),                                    // viewFormatCount
-				NewVkFormatᶜᵖ(sb.MustUnpackReadMap(swp.Info().ViewFormatList().ViewFormats().All()).Ptr()), // pViewFormats
+				uint32(swp.Info().ViewFormatList().ViewFormats().Len()),                                         // viewFormatCount
+				NewVkFormatᶜᵖ(sb.MustUnpackReadDenseMap(swp.Info().ViewFormatList().ViewFormats().All()).Ptr()), // pViewFormats
 			),
 		).Ptr())
 	}
@@ -1174,8 +1182,8 @@ func (sb *stateBuilder) createSwapchain(swp SwapchainObjectʳ) {
 			swp.Info().ArrayLayers(),            // imageArrayLayers
 			swp.Info().Usage(),                  // imageUsage
 			swp.Info().SharingMode(),            // imageSharingMode
-			uint32(swp.Info().QueueFamilyIndices().Len()),                         // queueFamilyIndexCount
-			NewU32ᶜᵖ(sb.MustUnpackReadMap(swp.Info().QueueFamilyIndices()).Ptr()), // pQueueFamilyIndices
+			uint32(swp.Info().QueueFamilyIndices().Len()),                              // queueFamilyIndexCount
+			NewU32ᶜᵖ(sb.MustUnpackReadDenseMap(swp.Info().QueueFamilyIndices()).Ptr()), // pQueueFamilyIndices
 			swp.PreTransform(),   // preTransform
 			swp.CompositeAlpha(), // compositeAlpha
 			swp.PresentMode(),    // presentMode
@@ -1888,9 +1896,9 @@ func (sb *stateBuilder) createImage(img ImageObjectʳ, srcState *api.GlobalState
 								VkStructureType_VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_DEVICE_GROUP_INFO, // sType
 								NewVoidᶜᵖ(memory.Nullptr),
 								uint32(dg.Bindings().Len()),
-								NewU32ᶜᵖ(sb.MustUnpackReadMap(dg.Bindings().All()).Ptr()),
+								NewU32ᶜᵖ(sb.MustUnpackReadDenseMap(dg.Bindings().All()).Ptr()),
 								uint32(dg.SplitInstanceBindings().Len()),
-								NewVkRect2Dᶜᵖ(sb.MustUnpackReadMap(dg.SplitInstanceBindings().All()).Ptr()),
+								NewVkRect2Dᶜᵖ(sb.MustUnpackReadDenseMap(dg.SplitInstanceBindings().All()).Ptr()),
 							),
 						).Ptr()),
 						img.VulkanHandle(),
@@ -2356,8 +2364,8 @@ func (sb *stateBuilder) createPipelineLayout(pl PipelineLayoutObjectʳ) {
 			NewVkDescriptorSetLayoutᶜᵖ( // pSetLayouts
 				sb.MustAllocReadData(descriptorSets).Ptr(),
 			),
-			uint32(pl.PushConstantRanges().Len()),                                               // pushConstantRangeCount
-			NewVkPushConstantRangeᶜᵖ(sb.MustUnpackReadMap(pl.PushConstantRanges().All()).Ptr()), // pPushConstantRanges
+			uint32(pl.PushConstantRanges().Len()),                                                    // pushConstantRangeCount
+			NewVkPushConstantRangeᶜᵖ(sb.MustUnpackReadDenseMap(pl.PushConstantRanges().All()).Ptr()), // pPushConstantRanges
 		)).Ptr(),
 		memory.Nullptr,
 		sb.MustAllocWriteData(pl.VulkanHandle()).Ptr(),
@@ -2375,59 +2383,405 @@ func (sb *stateBuilder) createPipelineLayout(pl PipelineLayoutObjectʳ) {
 }
 
 func (sb *stateBuilder) createRenderPass(rp RenderPassObjectʳ) {
-	subpassDescriptions := []VkSubpassDescription{}
-	for _, k := range rp.SubpassDescriptions().Keys() {
-		sd := rp.SubpassDescriptions().Get(k)
-		depthStencil := NewVkAttachmentReferenceᶜᵖ(memory.Nullptr)
-		if !sd.DepthStencilAttachment().IsNil() {
-			depthStencil = NewVkAttachmentReferenceᶜᵖ(sb.MustAllocReadData(sd.DepthStencilAttachment().Get()).Ptr())
-		}
-		resolveAttachments := NewVkAttachmentReferenceᶜᵖ(memory.Nullptr)
-		if sd.ResolveAttachments().Len() > 0 {
-			resolveAttachments = NewVkAttachmentReferenceᶜᵖ(sb.MustUnpackReadMap(sd.ResolveAttachments().All()).Ptr())
+	switch rp.Version() {
+	case RenderPassVersion_RenderPass:
+		sb.createRenderPassOld(rp)
+	case RenderPassVersion_RenderPass2:
+	case RenderPassVersion_RenderPass2KHR:
+		sb.createRenderPass2(rp)
+	}
+}
+
+func (sb *stateBuilder) createRenderPass2(rp RenderPassObjectʳ) {
+	newAttachmentDescriptions := NewVkAttachmentDescription2ᶜᵖ(memory.Nullptr)
+	if rp.AttachmentDescriptions().Len() > 0 {
+		attachmentDescriptions := []VkAttachmentDescription2{}
+		for _, k := range rp.AttachmentDescriptions().Keys() {
+			ad := rp.AttachmentDescriptions().Get(k)
+			attachmentDescriptions = append(attachmentDescriptions, NewVkAttachmentDescription2(
+				VkStructureType_VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2,
+				NewVoidᶜᵖ(memory.Nullptr),
+				ad.Flags(),
+				ad.Fmt(),
+				ad.Samples(),
+				ad.LoadOp(),
+				ad.StoreOp(),
+				ad.StencilLoadOp(),
+				ad.StencilStoreOp(),
+				ad.InitialLayout(),
+				ad.FinalLayout(),
+			))
 		}
 
-		subpassDescriptions = append(subpassDescriptions, NewVkSubpassDescription(
-			sd.Flags(),                          // flags
-			sd.PipelineBindPoint(),              // pipelineBindPoint
-			uint32(sd.InputAttachments().Len()), // inputAttachmentCount
-			NewVkAttachmentReferenceᶜᵖ(sb.MustUnpackReadMap(sd.InputAttachments().All()).Ptr()), // pInputAttachments
-			uint32(sd.ColorAttachments().Len()),                                                 // colorAttachmentCount
-			NewVkAttachmentReferenceᶜᵖ(sb.MustUnpackReadMap(sd.ColorAttachments().All()).Ptr()), // pColorAttachments
+		newAttachmentDescriptions = NewVkAttachmentDescription2ᶜᵖ(
+			sb.MustAllocReadData(attachmentDescriptions).Ptr(),
+		)
+	}
+
+	subpassDescriptions := []VkSubpassDescription2{}
+	for _, k := range rp.SubpassDescriptions().Keys() {
+		sd := rp.SubpassDescriptions().Get(k)
+
+		depthStencil := NewVkAttachmentReference2ᶜᵖ(memory.Nullptr)
+		if !sd.DepthStencilAttachment().IsNil() {
+			attachment := sd.DepthStencilAttachment().Get()
+			depthStencil = NewVkAttachmentReference2ᶜᵖ(sb.MustAllocReadData(
+				NewVkAttachmentReference2(
+					VkStructureType_VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2,
+					NewVoidᶜᵖ(memory.Nullptr),
+					attachment.Attachment(),
+					attachment.Layout(),
+					attachment.AspectMask(),
+				),
+			).Ptr())
+		}
+
+		colorAttachments := NewVkAttachmentReference2ᶜᵖ(memory.Nullptr)
+		if sd.ColorAttachments().Len() > 0 {
+			newAttachments := []VkAttachmentReference2{}
+			for _, a := range sd.ColorAttachments().Keys() {
+				attachment := sd.ColorAttachments().Get(a)
+				newAttachments = append(newAttachments,
+					NewVkAttachmentReference2(
+						VkStructureType_VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2,
+						NewVoidᶜᵖ(memory.Nullptr),
+						attachment.Attachment(),
+						attachment.Layout(),
+						attachment.AspectMask(),
+					),
+				)
+			}
+			colorAttachments = NewVkAttachmentReference2ᶜᵖ(
+				sb.MustAllocReadData(newAttachments).Ptr(),
+			)
+		}
+
+		resolveAttachments := NewVkAttachmentReference2ᶜᵖ(memory.Nullptr)
+		if sd.ResolveAttachments().Len() > 0 {
+			newAttachments := []VkAttachmentReference2{}
+			for _, a := range sd.ResolveAttachments().Keys() {
+				attachment := sd.ResolveAttachments().Get(a)
+				newAttachments = append(newAttachments,
+					NewVkAttachmentReference2(
+						VkStructureType_VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2,
+						NewVoidᶜᵖ(memory.Nullptr),
+						attachment.Attachment(),
+						attachment.Layout(),
+						attachment.AspectMask(),
+					),
+				)
+			}
+			resolveAttachments = NewVkAttachmentReference2ᶜᵖ(
+				sb.MustAllocReadData(newAttachments).Ptr(),
+			)
+		}
+
+		inputAttachments := NewVkAttachmentReference2ᶜᵖ(memory.Nullptr)
+		if sd.InputAttachments().Len() > 0 {
+			newAttachments := []VkAttachmentReference2{}
+			for _, a := range sd.InputAttachments().Keys() {
+				attachment := sd.InputAttachments().Get(a)
+				newAttachments = append(newAttachments,
+					NewVkAttachmentReference2(
+						VkStructureType_VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2,
+						NewVoidᶜᵖ(memory.Nullptr),
+						attachment.Attachment(),
+						attachment.Layout(),
+						attachment.AspectMask(),
+					),
+				)
+			}
+
+			inputAttachments = NewVkAttachmentReference2ᶜᵖ(
+				sb.MustAllocReadData(newAttachments).Ptr(),
+			)
+		}
+
+		subpassDescriptions = append(subpassDescriptions, NewVkSubpassDescription2(
+			VkStructureType_VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2,
+			NewVoidᶜᵖ(memory.Nullptr),
+			sd.Flags(),                             // flags
+			sd.PipelineBindPoint(),                 // pipelineBindPoint
+			sd.ViewMask(),                          // viewMask
+			uint32(sd.InputAttachments().Len()),    // inputAttachmentCount
+			inputAttachments,                       // pInputAttachments
+			uint32(sd.ColorAttachments().Len()),    // colorAttachmentCount
+			colorAttachments,                       // pColorAttachments
 			resolveAttachments,                     // pResolveAttachments
 			depthStencil,                           // pDepthStencilAttachment
 			uint32(sd.PreserveAttachments().Len()), // preserveAttachmentCount
-			NewU32ᶜᵖ(sb.MustUnpackReadMap(sd.PreserveAttachments().All()).Ptr()), // pPreserveAttachments
+			NewU32ᶜᵖ(sb.MustUnpackReadDenseMap(sd.PreserveAttachments().All()).Ptr()), // pPreserveAttachments
 		))
 	}
 
+	newSubpassDescriptions := NewVkSubpassDescription2ᶜᵖ(
+		sb.MustAllocReadData(subpassDescriptions).Ptr(),
+	)
+
+	subpassDependencies := []VkSubpassDependency2{}
+	for _, k := range rp.SubpassDependencies().Keys() {
+		sd := rp.SubpassDependencies().Get(k)
+		subpassDependencies = append(subpassDependencies, NewVkSubpassDependency2(
+			VkStructureType_VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2,
+			NewVoidᶜᵖ(memory.Nullptr),
+			sd.SrcSubpass(),
+			sd.DstSubpass(),
+			sd.SrcStageMask(),
+			sd.DstStageMask(),
+			sd.SrcAccessMask(),
+			sd.DstAccessMask(),
+			sd.DependencyFlags(),
+			sd.ViewOffset(),
+		))
+	}
+
+	newSubpassDependencies := NewVkSubpassDependency2ᶜᵖ(memory.Nullptr)
+	if len(subpassDependencies) > 0 {
+		newSubpassDependencies = NewVkSubpassDependency2ᶜᵖ(
+			sb.MustAllocReadData(subpassDependencies).Ptr(),
+		)
+	}
+
+	newCorrelatedViewMasks := NewU32ᶜᵖ(memory.Nullptr)
+	if rp.CorrelatedViewMasks().Len() > 0 {
+		newCorrelatedViewMasks = NewU32ᶜᵖ(sb.MustUnpackReadDenseMap(rp.CorrelatedViewMasks().All()).Ptr())
+	}
+
 	pNext := NewVoidᶜᵖ(memory.Nullptr)
-	if !rp.InputAttachmentAspectInfo().IsNil() {
+	// We do not support any extension for this functionality yet
+
+	newCreateRenderPassCmd := api.Cmd(nil)
+
+	switch rp.Version() {
+	case RenderPassVersion_RenderPass2:
+		newCreateRenderPassCmd = sb.cb.VkCreateRenderPass2(
+			rp.Device(),
+			sb.MustAllocReadData(NewVkRenderPassCreateInfo2(
+				VkStructureType_VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2, // sType
+				pNext, // pNext
+				0,     // flags
+				uint32(rp.AttachmentDescriptions().Len()), // attachmentCount
+				newAttachmentDescriptions,                 // pAttachments
+				uint32(rp.SubpassDescriptions().Len()),    // subpassCount
+				newSubpassDescriptions,                    // pSubpasses
+				uint32(rp.SubpassDependencies().Len()),    // dependencyCount
+				newSubpassDependencies,                    // pDependencies
+				uint32(rp.CorrelatedViewMasks().Len()),    // correlatedViewMaskCount
+				newCorrelatedViewMasks,                    // pCorrelatedViewMasks
+			)).Ptr(),
+			memory.Nullptr,
+			sb.MustAllocWriteData(rp.VulkanHandle()).Ptr(),
+			VkResult_VK_SUCCESS,
+		)
+	case RenderPassVersion_RenderPass2KHR:
+		newCreateRenderPassCmd = sb.cb.VkCreateRenderPass2KHR(
+			rp.Device(),
+			sb.MustAllocReadData(NewVkRenderPassCreateInfo2(
+				VkStructureType_VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2, // sType
+				pNext, // pNext
+				0,     // flags
+				uint32(rp.AttachmentDescriptions().Len()),                                 // attachmentCount
+				newAttachmentDescriptions,                                                 // pAttachments
+				uint32(rp.SubpassDescriptions().Len()),                                    // subpassCount
+				newSubpassDescriptions,                                                    // pSubpasses
+				uint32(rp.SubpassDependencies().Len()),                                    // dependencyCount
+				newSubpassDependencies,                                                    // pDependencies
+				uint32(rp.CorrelatedViewMasks().Len()),                                    // correlatedViewMaskCount
+				NewU32ᶜᵖ(sb.MustUnpackReadDenseMap(rp.CorrelatedViewMasks().All()).Ptr()), // pCorrelatedViewMasks
+			)).Ptr(),
+			memory.Nullptr,
+			sb.MustAllocWriteData(rp.VulkanHandle()).Ptr(),
+			VkResult_VK_SUCCESS,
+		)
+	default:
+		panic("Renderpass version must be Renderpass2 or Renderpass2KHR")
+	}
+
+	sb.write(newCreateRenderPassCmd)
+	sb.addDebugInfo(rp.Device(), rp.VulkanHandle(), VkObjectType_VK_OBJECT_TYPE_RENDER_PASS, rp.DebugInfo())
+}
+
+func (sb *stateBuilder) createRenderPassOld(rp RenderPassObjectʳ) {
+	newAttachmentDescriptions := NewVkAttachmentDescriptionᶜᵖ(memory.Nullptr)
+	if rp.AttachmentDescriptions().Len() > 0 {
+		attachmentDescriptions := []VkAttachmentDescription{}
+		for _, k := range rp.AttachmentDescriptions().Keys() {
+			ad := rp.AttachmentDescriptions().Get(k)
+			attachmentDescriptions = append(attachmentDescriptions, NewVkAttachmentDescription(
+				ad.Flags(),
+				ad.Fmt(),
+				ad.Samples(),
+				ad.LoadOp(),
+				ad.StoreOp(),
+				ad.StencilLoadOp(),
+				ad.StencilStoreOp(),
+				ad.InitialLayout(),
+				ad.FinalLayout(),
+			))
+		}
+
+		newAttachmentDescriptions = NewVkAttachmentDescriptionᶜᵖ(
+			sb.MustAllocReadData(attachmentDescriptions).Ptr(),
+		)
+	}
+
+	// VkRenderPassInputAttachmentAspectCreateInfo
+	aspectReferences := []VkInputAttachmentAspectReference{}
+
+	// VK_KHR_multiview info
+	isMultiviewEnabled := false
+	viewMasks := []uint32{}
+	viewOffsets := []int32{}
+
+	subpassDescriptions := []VkSubpassDescription{}
+	for _, k := range rp.SubpassDescriptions().Keys() {
+		sd := rp.SubpassDescriptions().Get(k)
+
+		depthStencil := NewVkAttachmentReferenceᶜᵖ(memory.Nullptr)
+		if !sd.DepthStencilAttachment().IsNil() {
+			attachment := sd.DepthStencilAttachment().Get()
+			depthStencil = NewVkAttachmentReferenceᶜᵖ(sb.MustAllocReadData(
+				NewVkAttachmentReference(
+					attachment.Attachment(),
+					attachment.Layout(),
+				),
+			).Ptr())
+		}
+
+		colorAttachments := NewVkAttachmentReferenceᶜᵖ(memory.Nullptr)
+		if sd.ColorAttachments().Len() > 0 {
+			newAttachments := []VkAttachmentReference{}
+			for _, a := range sd.ColorAttachments().Keys() {
+				attachment := sd.ColorAttachments().Get(a)
+				newAttachments = append(newAttachments,
+					NewVkAttachmentReference(
+						attachment.Attachment(),
+						attachment.Layout(),
+					),
+				)
+			}
+			colorAttachments = NewVkAttachmentReferenceᶜᵖ(
+				sb.MustAllocReadData(newAttachments).Ptr())
+		}
+
+		resolveAttachments := NewVkAttachmentReferenceᶜᵖ(memory.Nullptr)
+		if sd.ResolveAttachments().Len() > 0 {
+			newAttachments := []VkAttachmentReference{}
+			for _, a := range sd.ResolveAttachments().Keys() {
+				attachment := sd.ResolveAttachments().Get(a)
+				newAttachments = append(newAttachments,
+					NewVkAttachmentReference(
+						attachment.Attachment(),
+						attachment.Layout(),
+					),
+				)
+			}
+			resolveAttachments = NewVkAttachmentReferenceᶜᵖ(
+				sb.MustAllocReadData(newAttachments).Ptr())
+		}
+
+		inputAttachments := NewVkAttachmentReferenceᶜᵖ(memory.Nullptr)
+		if sd.InputAttachments().Len() > 0 {
+			newAttachments := []VkAttachmentReference{}
+			for _, a := range sd.InputAttachments().Keys() {
+				attachment := sd.InputAttachments().Get(a)
+				newAttachments = append(newAttachments,
+					NewVkAttachmentReference(
+						attachment.Attachment(),
+						attachment.Layout(),
+					),
+				)
+
+				// Gather info for VkRenderPassInputAttachmentAspectCreateInfo
+				if attachment.AspectMask() != VkImageAspectFlags(0) {
+					aspectReferences = append(aspectReferences,
+						NewVkInputAttachmentAspectReference(
+							k,                       // subpass
+							a,                       // inputAttachmentIndex
+							attachment.AspectMask(), // aspectMask
+						),
+					)
+				}
+			}
+
+			inputAttachments = NewVkAttachmentReferenceᶜᵖ(
+				sb.MustAllocReadData(newAttachments).Ptr())
+		}
+
+		subpassDescriptions = append(subpassDescriptions, NewVkSubpassDescription(
+			sd.Flags(),                             // flags
+			sd.PipelineBindPoint(),                 // pipelineBindPoint
+			uint32(sd.InputAttachments().Len()),    // inputAttachmentCount
+			inputAttachments,                       // pInputAttachments
+			uint32(sd.ColorAttachments().Len()),    // colorAttachmentCount
+			colorAttachments,                       // pColorAttachments
+			resolveAttachments,                     // pResolveAttachments
+			depthStencil,                           // pDepthStencilAttachment
+			uint32(sd.PreserveAttachments().Len()), // preserveAttachmentCount
+			NewU32ᶜᵖ(sb.MustUnpackReadDenseMap(sd.PreserveAttachments().All()).Ptr()), // pPreserveAttachments
+		))
+
+		// Gather info for VK_KHR_multiview
+		if sd.ViewMask() != 0 {
+			isMultiviewEnabled = true
+		}
+
+		viewMasks = append(viewMasks, sd.ViewMask())
+	}
+
+	newSubpassDescriptions := NewVkSubpassDescriptionᶜᵖ(
+		sb.MustAllocReadData(subpassDescriptions).Ptr(),
+	)
+
+	subpassDependencies := []VkSubpassDependency{}
+	for _, k := range rp.SubpassDependencies().Keys() {
+		sd := rp.SubpassDependencies().Get(k)
+		subpassDependencies = append(subpassDependencies, NewVkSubpassDependency(
+			sd.SrcSubpass(),
+			sd.DstSubpass(),
+			sd.SrcStageMask(),
+			sd.DstStageMask(),
+			sd.SrcAccessMask(),
+			sd.DstAccessMask(),
+			sd.DependencyFlags(),
+		))
+
+		// Gather info for VK_KHR_multiview
+		viewOffsets = append(viewOffsets, sd.ViewOffset())
+	}
+
+	newSubpassDependencies := NewVkSubpassDependencyᶜᵖ(memory.Nullptr)
+	if len(subpassDependencies) > 0 {
+		newSubpassDependencies = NewVkSubpassDependencyᶜᵖ(
+			sb.MustAllocReadData(subpassDependencies).Ptr(),
+		)
+	}
+
+	pNext := NewVoidᶜᵖ(memory.Nullptr)
+	if len(aspectReferences) > 0 {
 		pNext = NewVoidᶜᵖ(sb.MustAllocReadData(
 			NewVkRenderPassInputAttachmentAspectCreateInfo(
 				VkStructureType_VK_STRUCTURE_TYPE_RENDER_PASS_INPUT_ATTACHMENT_ASPECT_CREATE_INFO_KHR, // sType
-				pNext, // pNext
-				uint32(rp.InputAttachmentAspectInfo().AspectReferences().Len()), // aspectReferenceCount
+				pNext,                         // pNext
+				uint32(len(aspectReferences)), // aspectReferenceCount
 				NewVkInputAttachmentAspectReferenceᶜᵖ(
-					sb.MustUnpackReadMap(
-						rp.InputAttachmentAspectInfo().AspectReferences().All(),
-					).Ptr(),
-				), // pAsepctReferences
+					sb.MustAllocReadData(aspectReferences).Ptr(),
+				), // pAspectReferences
 			),
 		).Ptr())
 	}
 
-	if !rp.MultiviewInfo().IsNil() {
+	if isMultiviewEnabled {
 		pNext = NewVoidᶜᵖ(sb.MustAllocReadData(
 			NewVkRenderPassMultiviewCreateInfo(
 				VkStructureType_VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO, // sType
 				pNext, // pNext
-				uint32(rp.MultiviewInfo().PViewMasks().Count()),
-				NewU32ᶜᵖ(sb.mustReadSlice(rp.MultiviewInfo().PViewMasks()).Ptr()),
-				uint32(rp.MultiviewInfo().PViewOffsets().Count()),
-				NewS32ᶜᵖ(sb.mustReadSlice(rp.MultiviewInfo().PViewOffsets()).Ptr()),
-				uint32(rp.MultiviewInfo().PCorrelationMasks().Count()),
-				NewU32ᶜᵖ(sb.mustReadSlice(rp.MultiviewInfo().PCorrelationMasks()).Ptr()),
+				uint32(len(viewMasks)),
+				NewU32ᶜᵖ(sb.MustAllocReadData(viewMasks).Ptr()),
+				uint32(len(viewOffsets)),
+				NewS32ᶜᵖ(sb.MustAllocReadData(viewOffsets).Ptr()),
+				uint32(rp.CorrelatedViewMasks().Len()),
+				NewU32ᶜᵖ(sb.MustUnpackReadDenseMap(rp.CorrelatedViewMasks().All()).Ptr()),
 			),
 		).Ptr())
 	}
@@ -2438,12 +2792,12 @@ func (sb *stateBuilder) createRenderPass(rp RenderPassObjectʳ) {
 			VkStructureType_VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO, // sType
 			pNext, // pNext
 			0,     // flags
-			uint32(rp.AttachmentDescriptions().Len()),                                                   // attachmentCount
-			NewVkAttachmentDescriptionᶜᵖ(sb.MustUnpackReadMap(rp.AttachmentDescriptions().All()).Ptr()), // pAttachments
-			uint32(len(subpassDescriptions)),                                                            // subpassCount
-			NewVkSubpassDescriptionᶜᵖ(sb.MustAllocReadData(subpassDescriptions).Ptr()),                  // pSubpasses
-			uint32(rp.SubpassDependencies().Len()),                                                      // dependencyCount
-			NewVkSubpassDependencyᶜᵖ(sb.MustUnpackReadMap(rp.SubpassDependencies().All()).Ptr()),        // pDependencies
+			uint32(rp.AttachmentDescriptions().Len()), // attachmentCount
+			newAttachmentDescriptions,                 // pAttachments
+			uint32(rp.SubpassDescriptions().Len()),    // subpassCount
+			newSubpassDescriptions,                    // pSubpasses
+			uint32(rp.SubpassDependencies().Len()),    // dependencyCount
+			newSubpassDependencies,                    // pDependencies
 		)).Ptr(),
 		memory.Nullptr,
 		sb.MustAllocWriteData(rp.VulkanHandle()).Ptr(),
@@ -2560,8 +2914,8 @@ func (sb *stateBuilder) createComputePipeline(cp ComputePipelineObjectʳ) {
 	if !cp.Stage().Specialization().IsNil() {
 		data := cp.Stage().Specialization().Data()
 		specializationInfo = NewVkSpecializationInfoᶜᵖ(sb.MustAllocReadData(NewVkSpecializationInfo(
-			uint32(cp.Stage().Specialization().Specializations().Len()),                                                    // mapEntryCount
-			NewVkSpecializationMapEntryᶜᵖ(sb.MustUnpackReadMap(cp.Stage().Specialization().Specializations().All()).Ptr()), // pMapEntries
+			uint32(cp.Stage().Specialization().Specializations().Len()),                                                         // mapEntryCount
+			NewVkSpecializationMapEntryᶜᵖ(sb.MustUnpackReadDenseMap(cp.Stage().Specialization().Specializations().All()).Ptr()), // pMapEntries
 			memory.Size(data.Size()),                // dataSize
 			NewVoidᶜᵖ(sb.mustReadSlice(data).Ptr()), // pData
 		)).Ptr())
@@ -2681,8 +3035,8 @@ func (sb *stateBuilder) createGraphicsPipeline(gp GraphicsPipelineObjectʳ) {
 			data := s.Specialization().Data()
 			specializationInfo = NewVkSpecializationInfoᶜᵖ(sb.MustAllocReadData(
 				NewVkSpecializationInfo(
-					uint32(s.Specialization().Specializations().Len()),                                                    // mapEntryCount
-					NewVkSpecializationMapEntryᶜᵖ(sb.MustUnpackReadMap(s.Specialization().Specializations().All()).Ptr()), // pMapEntries
+					uint32(s.Specialization().Specializations().Len()),                                                         // mapEntryCount
+					NewVkSpecializationMapEntryᶜᵖ(sb.MustUnpackReadDenseMap(s.Specialization().Specializations().All()).Ptr()), // pMapEntries
 					memory.Size(data.Size()),                // dataSize
 					NewVoidᶜᵖ(sb.mustReadSlice(data).Ptr()), // pData
 				)).Ptr())
@@ -2719,10 +3073,10 @@ func (sb *stateBuilder) createGraphicsPipeline(gp GraphicsPipelineObjectʳ) {
 				VkStructureType_VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO, // sType
 				pNext, // pNext
 				0,     // flags
-				uint32(gp.VertexInputState().BindingDescriptions().Len()),                                                               // vertexBindingDescriptionCount
-				NewVkVertexInputBindingDescriptionᶜᵖ(sb.MustUnpackReadMap(gp.VertexInputState().BindingDescriptions().All()).Ptr()),     // pVertexBindingDescriptions
-				uint32(gp.VertexInputState().AttributeDescriptions().Len()),                                                             // vertexAttributeDescriptionCount
-				NewVkVertexInputAttributeDescriptionᶜᵖ(sb.MustUnpackReadMap(gp.VertexInputState().AttributeDescriptions().All()).Ptr()), // pVertexAttributeDescriptions
+				uint32(gp.VertexInputState().BindingDescriptions().Len()),                                                                    // vertexBindingDescriptionCount
+				NewVkVertexInputBindingDescriptionᶜᵖ(sb.MustUnpackReadDenseMap(gp.VertexInputState().BindingDescriptions().All()).Ptr()),     // pVertexBindingDescriptions
+				uint32(gp.VertexInputState().AttributeDescriptions().Len()),                                                                  // vertexAttributeDescriptionCount
+				NewVkVertexInputAttributeDescriptionᶜᵖ(sb.MustUnpackReadDenseMap(gp.VertexInputState().AttributeDescriptions().All()).Ptr()), // pVertexAttributeDescriptions
 			)).Ptr())
 	}
 
@@ -2751,11 +3105,11 @@ func (sb *stateBuilder) createGraphicsPipeline(gp GraphicsPipelineObjectʳ) {
 	if !gp.ViewportState().IsNil() {
 		viewports := NewVkViewportᶜᵖ(memory.Nullptr)
 		if gp.ViewportState().Viewports().Len() > 0 {
-			viewports = NewVkViewportᶜᵖ(sb.MustUnpackReadMap(gp.ViewportState().Viewports().All()).Ptr())
+			viewports = NewVkViewportᶜᵖ(sb.MustUnpackReadDenseMap(gp.ViewportState().Viewports().All()).Ptr())
 		}
 		scissors := NewVkRect2Dᶜᵖ(memory.Nullptr)
 		if gp.ViewportState().Scissors().Len() > 0 {
-			scissors = NewVkRect2Dᶜᵖ(sb.MustUnpackReadMap(gp.ViewportState().Scissors().All()).Ptr())
+			scissors = NewVkRect2Dᶜᵖ(sb.MustUnpackReadDenseMap(gp.ViewportState().Scissors().All()).Ptr())
 		}
 
 		viewportState = NewVkPipelineViewportStateCreateInfoᶜᵖ(sb.MustAllocReadData(
@@ -2774,7 +3128,7 @@ func (sb *stateBuilder) createGraphicsPipeline(gp GraphicsPipelineObjectʳ) {
 	if !gp.MultisampleState().IsNil() {
 		sampleMask := NewVkSampleMaskᶜᵖ(memory.Nullptr)
 		if gp.MultisampleState().SampleMask().Len() > 0 {
-			sampleMask = NewVkSampleMaskᶜᵖ(sb.MustUnpackReadMap(gp.MultisampleState().SampleMask().All()).Ptr())
+			sampleMask = NewVkSampleMaskᶜᵖ(sb.MustUnpackReadDenseMap(gp.MultisampleState().SampleMask().All()).Ptr())
 		}
 		multisampleState = NewVkPipelineMultisampleStateCreateInfoᶜᵖ(sb.MustAllocReadData(
 			NewVkPipelineMultisampleStateCreateInfo(
@@ -2826,7 +3180,7 @@ func (sb *stateBuilder) createGraphicsPipeline(gp GraphicsPipelineObjectʳ) {
 
 		colorblendAttachments := NewVkPipelineColorBlendAttachmentStateᶜᵖ(memory.Nullptr)
 		if gp.ColorBlendState().Attachments().Len() > 0 {
-			colorblendAttachments = NewVkPipelineColorBlendAttachmentStateᶜᵖ(sb.MustUnpackReadMap(gp.ColorBlendState().Attachments().All()).Ptr())
+			colorblendAttachments = NewVkPipelineColorBlendAttachmentStateᶜᵖ(sb.MustUnpackReadDenseMap(gp.ColorBlendState().Attachments().All()).Ptr())
 		}
 		colorBlendState = NewVkPipelineColorBlendStateCreateInfoᶜᵖ(sb.MustAllocReadData(
 			NewVkPipelineColorBlendStateCreateInfo(
@@ -2845,7 +3199,7 @@ func (sb *stateBuilder) createGraphicsPipeline(gp GraphicsPipelineObjectʳ) {
 	if !gp.DynamicState().IsNil() {
 		dynamicStates := NewVkDynamicStateᶜᵖ(memory.Nullptr)
 		if gp.DynamicState().DynamicStates().Len() > 0 {
-			dynamicStates = NewVkDynamicStateᶜᵖ(sb.MustUnpackReadMap(gp.DynamicState().DynamicStates().All()).Ptr())
+			dynamicStates = NewVkDynamicStateᶜᵖ(sb.MustUnpackReadDenseMap(gp.DynamicState().DynamicStates().All()).Ptr())
 		}
 		dynamicState = NewVkPipelineDynamicStateCreateInfoᶜᵖ(sb.MustAllocReadData(
 			NewVkPipelineDynamicStateCreateInfo(
@@ -3056,7 +3410,7 @@ func (sb *stateBuilder) createDescriptorPoolAndAllocateDescriptorSets(dp Descrip
 			dp.Flags(),               // flags
 			dp.MaxSets(),             // maxSets
 			uint32(dp.Sizes().Len()), // poolSizeCount
-			NewVkDescriptorPoolSizeᶜᵖ(sb.MustUnpackReadMap(dp.Sizes().All()).Ptr()), // pPoolSizes
+			NewVkDescriptorPoolSizeᶜᵖ(sb.MustUnpackReadDenseMap(dp.Sizes().All()).Ptr()), // pPoolSizes
 		)).Ptr(),
 		memory.Nullptr,
 		sb.MustAllocWriteData(dp.VulkanHandle()).Ptr(),
@@ -3499,9 +3853,9 @@ func (sb *stateBuilder) createSameBuffer(src BufferObjectʳ, buffer VkBuffer, me
 				src.Info().CreateFlags(), // flags
 				src.Info().Size(),        // size
 				VkBufferUsageFlags(uint32(src.Info().Usage())|uint32(VkBufferUsageFlagBits_VK_BUFFER_USAGE_TRANSFER_DST_BIT)), // usage
-				src.Info().SharingMode(),                                                    // sharingMode
-				uint32(src.Info().QueueFamilyIndices().Len()),                               // queueFamilyIndexCount
-				NewU32ᶜᵖ(sb.MustUnpackReadMap(src.Info().QueueFamilyIndices().All()).Ptr()), // pQueueFamilyIndices
+				src.Info().SharingMode(),                      // sharingMode
+				uint32(src.Info().QueueFamilyIndices().Len()), // queueFamilyIndexCount
+				NewU32ᶜᵖ(sb.MustUnpackReadDenseMap(src.Info().QueueFamilyIndices().All()).Ptr()), // pQueueFamilyIndices
 			)).Ptr(),
 		memory.Nullptr,
 		sb.MustAllocWriteData(buffer).Ptr(),
@@ -3618,7 +3972,7 @@ func (sb *stateBuilder) createSameBuffer(src BufferObjectʳ, buffer VkBuffer, me
 								VkStructureType_VK_STRUCTURE_TYPE_BIND_BUFFER_MEMORY_DEVICE_GROUP_INFO, // sType
 								0, // pNext
 								uint32(dg.Bindings().Len()),
-								NewU32ᶜᵖ(sb.MustUnpackReadMap(dg.Bindings().All()).Ptr()),
+								NewU32ᶜᵖ(sb.MustUnpackReadDenseMap(dg.Bindings().All()).Ptr()),
 							),
 						).Ptr()),
 						dst.VulkanHandle(),

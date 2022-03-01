@@ -445,7 +445,11 @@ public class Devices {
     }
 
     public DeviceValidationResult(Service.ValidateDeviceResponse r) {
+<<<<<<< HEAD
       this(r.getError(), r.getDownloadError(), r.getTracePath(), !r.hasError(), false);
+=======
+      this(r.getError(), !r.hasError() && r.getResult().getValidationFailureMsg().length() == 0, false);
+>>>>>>> main
     }
 
     @Override

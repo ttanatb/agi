@@ -29,6 +29,7 @@ import (
 	"github.com/google/gapid/core/os/device/bind"
 	"github.com/google/gapid/core/os/file"
 	"github.com/google/gapid/core/os/fuchsia"
+	"github.com/google/gapid/gapis/api"
 	"github.com/google/gapid/gapis/api/sync"
 	"github.com/google/gapid/gapis/service"
 	"github.com/google/gapid/gapis/service/path"
@@ -138,14 +139,18 @@ func (t *fuchsiaTracer) GetDevice() bind.Device {
 
 // ProcessProfilingData takes a buffer for a Perfetto trace and translates it into
 // a ProfilingData
-func (t *fuchsiaTracer) ProcessProfilingData(ctx context.Context, buffer *bytes.Buffer, capture *path.Capture, handleMapping map[uint64][]service.VulkanHandleMappingItem, syncData *sync.Data) (*service.ProfilingData, error) {
+func (t *fuchsiaTracer) ProcessProfilingData(ctx context.Context, buffer *bytes.Buffer,
+	capture *path.Capture, staticAnalysisResult chan *api.StaticAnalysisProfileData,
+	handleMapping map[uint64][]service.VulkanHandleMappingItem, syncData *sync.Data) (*service.ProfilingData, error) {
+
+	<-staticAnalysisResult // Ignore the static analysis result.
 	return nil, nil
 }
 
 // Validate validates the GPU profiling capabilities of the given device and returns
 // an error if validation failed or the GPU profiling data is invalid.
-func (t *fuchsiaTracer) Validate(ctx context.Context) error {
-	return nil
+func (t *fuchsiaTracer) Validate(ctx context.Context, enableLocalFiles bool) (*service.DeviceValidationResult, error) {
+	return &service.DeviceValidationResult{}, nil
 }
 
 func NewTracer(d bind.Device) tracer.Tracer {

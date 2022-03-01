@@ -20,11 +20,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/gapid/core/math/interval"
 	"github.com/google/gapid/gapis/api"
 	"github.com/google/gapid/gapis/capture"
 	"github.com/google/gapid/gapis/database"
-	"github.com/google/gapid/gapis/resolve/cmdgrouper"
 	"github.com/google/gapid/gapis/service"
 	"github.com/google/gapid/gapis/service/path"
 )
@@ -72,30 +70,28 @@ func (t *commandTree) index(indices []uint64) (api.SpanItem, api.SubCmdIdx) {
 	return group, subCmdRootID
 }
 
-func (t *commandTree) indices(idx []uint64, preferGroup bool) []uint64 {
+func (t *commandTree) indices(cmdIdx []uint64, preferGroup bool) []uint64 {
 	out := []uint64{}
 	group := t.root
 
-	for _, id := range idx {
-		brk := false
-		for {
-			if brk {
-				break
+	for i := 0; i < len(cmdIdx); i++ {
+		cmdId := api.CmdID(cmdIdx[i])
+		idx := group.IndexOf(cmdId)
+		out = append(out, idx)
+
+		switch item := group.Index(idx).(type) {
+		case api.CmdIDGroup:
+			group = item
+			if group.Bounds().Last() > cmdId {
+				// We are looking for something inside this group, not the group itself, so go around again.
+				i--
 			}
-			i := group.IndexOf(api.CmdID(id))
-			out = append(out, i)
-			switch item := group.Index(i).(type) {
-			case api.CmdIDGroup:
-				group = item
-				if preferGroup {
-					brk = true
-				}
-			case api.SubCmdRoot:
-				group = item.SubGroup
-				brk = true
-			default:
-				return out
-			}
+		case api.SubCmdRoot:
+			group = item.SubGroup
+			// This SubCmdRoot may skip over some command indecies.
+			i = len(item.Id) - 1
+		default:
+			return out
 		}
 	}
 	return out
@@ -193,6 +189,7 @@ func CommandTreeNode(ctx context.Context, c *path.CommandTreeNode, r *path.Resol
 			Group:                g,
 			NumCommands:          count,
 			ExperimentalCommands: experimentalCmds,
+			ExpandByDefault:      true,
 		}, nil
 	default:
 		panic(fmt.Errorf("Unexpected type: %T, cmdTree.index(c.Indices): (%v, %v), indices: %v",
@@ -237,44 +234,6 @@ func (r *CommandTreeResolvable) Resolve(ctx context.Context) (interface{}, error
 		return nil, err
 	}
 
-	groupers := []cmdgrouper.Grouper{}
-
-	if p.GroupByApi {
-		groupers = append(groupers, cmdgrouper.Run(
-			func(cmd api.Cmd, s *api.GlobalState) (interface{}, string) {
-				if api := cmd.API(); api != nil {
-					return api.ID(), api.Name()
-				}
-				return nil, "No context"
-			}))
-	}
-
-	if p.GroupByThread {
-		groupers = append(groupers, cmdgrouper.Run(
-			func(cmd api.Cmd, s *api.GlobalState) (interface{}, string) {
-				thread := cmd.Thread()
-				return thread, fmt.Sprintf("Thread: 0x%x", thread)
-			}))
-	}
-
-	// Walk the list of unfiltered commands to build the groups.
-	s := c.NewState(ctx)
-	err = api.ForeachCmd(ctx, c.Commands, false, func(ctx context.Context, id api.CmdID, cmd api.Cmd) error {
-		if err := cmd.Mutate(ctx, id, s, nil, nil); err != nil {
-			return fmt.Errorf("Fail to mutate command %v: %v", cmd, err)
-		}
-		if filter(id, cmd, s, api.SubCmdIdx([]uint64{uint64(id)})) {
-			for _, g := range groupers {
-				g.Process(ctx, id, cmd, s)
-			}
-		}
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
 	// Build the command tree
 	out := &commandTree{
 		path: p,
@@ -282,13 +241,6 @@ func (r *CommandTreeResolvable) Resolve(ctx context.Context) (interface{}, error
 			Name:  "root",
 			Range: api.CmdIDRange{End: api.CmdID(len(c.Commands))},
 		},
-	}
-	for _, g := range groupers {
-		for _, l := range g.Build(api.CmdID(len(c.Commands))) {
-			if group, err := out.root.AddGroup(l.Start, l.End, l.Name, []api.SubCmdIdx{}); err == nil {
-				group.UserData = l.UserData
-			}
-		}
 	}
 
 	if p.GroupByFrame {
@@ -301,14 +253,7 @@ func (r *CommandTreeResolvable) Resolve(ctx context.Context) (interface{}, error
 			},
 			"Transform Feedback")
 	}
-	if p.GroupByDrawCall {
-		addFrameEventGroups(ctx, p, out, c.Commands,
-			func(id api.CmdID, cmd api.Cmd, s *api.GlobalState, idx api.SubCmdIdx) bool {
-				return cmd.CmdFlags().IsDrawCall()
-			},
-			"Draw")
-	}
-	if p.GroupBySubmission {
+	if p.GroupBySubmission && !p.Filter.GetSuppressHostCommands() {
 		addContainingGroups(ctx, p, out, c.Commands,
 			func(id api.CmdID, cmd api.Cmd, s *api.GlobalState, idx api.SubCmdIdx) bool {
 				return cmd.CmdFlags().IsSubmission()
@@ -316,10 +261,8 @@ func (r *CommandTreeResolvable) Resolve(ctx context.Context) (interface{}, error
 			"Host Coordination")
 	}
 
-	drawOrClearCmds := api.Spans{} // All the spans will have length 1
-
 	// Now we have all the groups, we finally need to add the filtered commands.
-	s = c.NewState(ctx)
+	s := c.NewState(ctx)
 	err = api.ForeachCmd(ctx, c.Commands, false, func(ctx context.Context, id api.CmdID, cmd api.Cmd) error {
 		if err := cmd.Mutate(ctx, id, s, nil, nil); err != nil {
 			return fmt.Errorf("Fail to mutate command %v: %v", cmd, err)
@@ -356,17 +299,18 @@ func (r *CommandTreeResolvable) Resolve(ctx context.Context) (interface{}, error
 					return false
 				})
 			}
+
+			// In the current design, it's easier to flatten the tree after the fact,
+			// rather than avoid creating the tree structure in the first place.
+			// TODO(pmuetschard): re-design this to suit Vulkan and avoid this.
+			if p.SuppressSubmitInfoNodes && cmd.CmdFlags().IsSubmission() {
+				subr.SubGroup.Flatten()
+			}
+
 			return nil
 		}
 
 		out.root.AddCommand(id)
-
-		if flags := cmd.CmdFlags(); flags.IsDrawCall() || flags.IsClear() {
-			drawOrClearCmds = append(drawOrClearCmds, &api.CmdIDRange{
-				Start: id, End: id + 1,
-			})
-		}
-
 		return nil
 	})
 
@@ -378,7 +322,7 @@ func (r *CommandTreeResolvable) Resolve(ctx context.Context) (interface{}, error
 	out.root.Cluster(uint64(p.MaxChildren), uint64(p.MaxNeighbours))
 
 	// Set group representations.
-	setRepresentations(ctx, &out.root, drawOrClearCmds)
+	setRepresentations(ctx, &out.root)
 
 	return out, nil
 }
@@ -482,47 +426,50 @@ func (f frame) addGroup(t *commandTree) {
 }
 
 func addFrameGroups(ctx context.Context, p *path.CommandTree, t *commandTree, cmds []api.Cmd) {
-
-	eofCommands := make([]api.Cmd, 0)
-	for _, cmd := range cmds {
+	eofCommands := []int{}
+	for idx, cmd := range cmds {
 		if cmd.CmdFlags().IsEndOfFrame() {
-			eofCommands = append(eofCommands, cmd)
+			eofCommands = append(eofCommands, idx)
 		}
+	}
+
+	// No end of frame commands in the trace, no grouping necessary.
+	if len(eofCommands) == 0 {
+		return
+	}
+
+	needIncompleteFrame := eofCommands[len(eofCommands)-1] < len(cmds)-1
+	if len(eofCommands) == 1 && !needIncompleteFrame {
+		// Only one frame, so the group would span the entire range. Don't bother adding it.
+		return
 	}
 
 	frameCount := 0
 	startFrame := 0
-
-	for i, cmd := range cmds {
-		if cmd.CmdFlags().IsEndOfFrame() {
-			t.root.AddGroup(api.CmdID(startFrame), api.CmdID(i+1), fmt.Sprintf("Frame %v", frameCount+1), []api.SubCmdIdx{})
-			startFrame = i + 1
-			frameCount++
-		}
+	for _, idx := range eofCommands {
+		t.root.AddGroup(api.CmdID(startFrame), api.CmdID(idx+1), fmt.Sprintf("Frame %v", frameCount+1), []api.SubCmdIdx{})
+		startFrame = idx + 1
+		frameCount++
 	}
 
-	if p.AllowIncompleteFrame && frameCount > 0 && len(cmds) > startFrame {
+	if p.AllowIncompleteFrame && needIncompleteFrame {
 		t.root.AddGroup(api.CmdID(startFrame), api.CmdID(len(cmds)), fmt.Sprintf("[Incomplete] Frame", frameCount+1), []api.SubCmdIdx{})
 	}
 }
 
-func setRepresentations(ctx context.Context, g *api.CmdIDGroup, drawOrClearCmds api.Spans) {
+func setRepresentations(ctx context.Context, g *api.CmdIDGroup) {
 	data, _ := g.UserData.(*CmdGroupData)
 	if data == nil {
 		data = &CmdGroupData{Representation: api.CmdNoID}
 		g.UserData = data
 	}
 	if data.Representation == api.CmdNoID {
-		if s, c := interval.Intersect(drawOrClearCmds, g.Bounds().Span()); c > 0 {
-			data.Representation = drawOrClearCmds[s+c-1].Bounds().Start
-		} else {
-			data.Representation = g.Range.Last()
-		}
+		data.Representation = g.Range.Last()
 	}
 
 	for _, s := range g.Spans {
 		if subgroup, ok := s.(*api.CmdIDGroup); ok {
-			setRepresentations(ctx, subgroup, drawOrClearCmds)
+			setRepresentations(ctx, subgroup)
 		}
 	}
 }

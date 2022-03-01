@@ -24,10 +24,10 @@ import (
 	"github.com/google/gapid/gapis/memory"
 )
 
-// unpackMapWithAllocator takes a dense map of u32 -> structure, flattens the
+// unpackDenseMapWithAllocator takes a dense map of u32 -> structure, flattens the
 // map into a slice, allocates the appropriate data using a custom provided
 // allocation function and returns it as well as the length of the map.
-func unpackMapWithAllocator(alloc func(v ...interface{}) api.AllocResult, m interface{}) (api.AllocResult, uint32) {
+func unpackDenseMapWithAllocator(alloc func(v ...interface{}) api.AllocResult, m interface{}) (api.AllocResult, uint32) {
 	u32Type := reflect.TypeOf(uint32(0))
 	d := dictionary.From(m)
 	if d == nil || d.KeyTy() != u32Type {
@@ -45,9 +45,36 @@ func unpackMapWithAllocator(alloc func(v ...interface{}) api.AllocResult, m inte
 	return alloc(sl.Interface()), uint32(d.Len())
 }
 
-// unpackMap takes a dense map of u32 -> structure, flattens the map into
+// unpackMapWithAllocator takes a map of any key -> structure, flattens the
+// map into a slice, allocates the appropriate data using a custom provided
+// allocation function and returns it as well as the length of the map. This is
+// similar to unpackMapWithAllocator, except that the keys are ignored.
+func unpackMapWithAllocator(alloc func(v ...interface{}) api.AllocResult, m interface{}) (api.AllocResult, uint32) {
+	d := dictionary.From(m)
+	sl := reflect.MakeSlice(reflect.SliceOf(d.ValTy()), d.Len(), d.Len())
+	i := 0
+	for _, e := range dictionary.Entries(d) {
+		v := reflect.ValueOf(e.V)
+		sl.Index(i).Set(v)
+		i++
+	}
+
+	return alloc(sl.Interface()), uint32(d.Len())
+}
+
+// unpackDenseMap takes a dense map of u32 -> structure, flattens the map into
 // a slice, allocates the appropriate data and returns it as well as the
 // length of the map.
+func unpackDenseMap(ctx context.Context, s *api.GlobalState, m interface{}) (api.AllocResult, uint32) {
+	return unpackDenseMapWithAllocator(func(v ...interface{}) api.AllocResult {
+		return s.AllocDataOrPanic(ctx, v...)
+	}, m)
+}
+
+// unpackMap takes a map of any key -> structure, flattens the map into
+// a slice, allocates the appropriate data and returns it as well as the
+// length of the map. This is similar to unpackMap, except that the keys are
+// ignored.
 func unpackMap(ctx context.Context, s *api.GlobalState, m interface{}) (api.AllocResult, uint32) {
 	return unpackMapWithAllocator(func(v ...interface{}) api.AllocResult {
 		return s.AllocDataOrPanic(ctx, v...)
@@ -141,33 +168,339 @@ func allocateNewCmdBufFromExistingOneAndBegin(
 	return newCmdBufID, x, cleanup
 }
 
+func rebuildVkCmdBeginRenderPassX(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdBeginRenderPassXArgsʳ) (func(), api.Cmd, error) {
+	switch d.Version() {
+	case RenderPassVersion_RenderPass:
+		return rebuildVkCmdBeginRenderPass(ctx, cb, commandBuffer, r, s, d)
+	case RenderPassVersion_RenderPass2:
+		return rebuildVkCmdBeginRenderPass2(ctx, cb, commandBuffer, r, s, d)
+	case RenderPassVersion_RenderPass2KHR:
+		return rebuildVkCmdBeginRenderPass2KHR(ctx, cb, commandBuffer, r, s, d)
+	default:
+		panic("Unknown renderpass version")
+	}
+}
+
 func rebuildVkCmdBeginRenderPass(
 	ctx context.Context,
 	cb CommandBuilder,
 	commandBuffer VkCommandBuffer,
 	r *api.GlobalState,
 	s *api.GlobalState,
-	d VkCmdBeginRenderPassArgsʳ) (func(), api.Cmd, error) {
+	d VkCmdBeginRenderPassXArgsʳ) (func(), api.Cmd, error) {
+
+	renderPassBeginInfo, mem, err := createVkRenderPassBeginInfo(ctx, s, d.RenderPassBeginInfo())
+	if err != nil {
+		return nil, nil, err
+	}
+	renderPassBeginData := s.AllocDataOrPanic(ctx, renderPassBeginInfo)
+	mem = append(mem, renderPassBeginData)
+
+	contents := d.SubpassBeginInfo().Contents()
+
+	cleanup := func() {
+		for _, d := range mem {
+			d.Free()
+		}
+	}
+
+	cmd := cb.VkCmdBeginRenderPass(
+		commandBuffer,
+		renderPassBeginData.Ptr(),
+		contents,
+	)
+	for _, d := range mem {
+		cmd.AddRead(d.Data())
+	}
+	return cleanup, cmd, nil
+}
+
+func rebuildVkCmdBeginRenderPass2(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdBeginRenderPassXArgsʳ) (func(), api.Cmd, error) {
+
+	renderPassBeginInfo, mem, err := createVkRenderPassBeginInfo(ctx, s, d.RenderPassBeginInfo())
+	if err != nil {
+		return nil, nil, err
+	}
+	renderPassBeginData := s.AllocDataOrPanic(ctx, renderPassBeginInfo)
+	mem = append(mem, renderPassBeginData)
+
+	subpassBeginInfo := createVkSubpassBeginInfo(d.SubpassBeginInfo())
+	subpassBeginData := s.AllocDataOrPanic(ctx, subpassBeginInfo)
+	mem = append(mem, subpassBeginData)
+
+	cleanup := func() {
+		for _, d := range mem {
+			d.Free()
+		}
+	}
+
+	cmd := cb.VkCmdBeginRenderPass2(
+		commandBuffer,
+		renderPassBeginData.Ptr(),
+		subpassBeginData.Ptr(),
+	)
+	for _, d := range mem {
+		cmd.AddRead(d.Data())
+	}
+	return cleanup, cmd, nil
+}
+
+func rebuildVkCmdBeginRenderPass2KHR(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdBeginRenderPassXArgsʳ) (func(), api.Cmd, error) {
+
+	renderPassBeginInfo, mem, err := createVkRenderPassBeginInfo(ctx, s, d.RenderPassBeginInfo())
+	if err != nil {
+		return nil, nil, err
+	}
+	renderPassBeginData := s.AllocDataOrPanic(ctx, renderPassBeginInfo)
+	mem = append(mem, renderPassBeginData)
+
+	subpassBeginInfo := createVkSubpassBeginInfo(d.SubpassBeginInfo())
+	subpassBeginData := s.AllocDataOrPanic(ctx, subpassBeginInfo)
+	mem = append(mem, subpassBeginData)
+
+	cleanup := func() {
+		for _, d := range mem {
+			d.Free()
+		}
+	}
+
+	cmd := cb.VkCmdBeginRenderPass2KHR(
+		commandBuffer,
+		renderPassBeginData.Ptr(),
+		subpassBeginData.Ptr(),
+	)
+	for _, d := range mem {
+		cmd.AddRead(d.Data())
+	}
+	return cleanup, cmd, nil
+}
+
+func rebuildVkCmdEndRenderPassX(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdEndRenderPassXArgsʳ) (func(), api.Cmd, error) {
+	switch d.Version() {
+	case RenderPassVersion_RenderPass:
+		return rebuildVkCmdEndRenderPass(ctx, cb, commandBuffer, r, s, d)
+	case RenderPassVersion_RenderPass2:
+		return rebuildVkCmdEndRenderPass2(ctx, cb, commandBuffer, r, s, d)
+	case RenderPassVersion_RenderPass2KHR:
+		return rebuildVkCmdEndRenderPass2KHR(ctx, cb, commandBuffer, r, s, d)
+	default:
+		panic("Unknown renderpass version")
+	}
+}
+
+func rebuildVkCmdEndRenderPass(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdEndRenderPassXArgsʳ) (func(), api.Cmd, error) {
+	return func() {}, cb.VkCmdEndRenderPass(commandBuffer), nil
+}
+
+func rebuildVkCmdEndRenderPass2(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdEndRenderPassXArgsʳ) (func(), api.Cmd, error) {
 	mem := []api.AllocResult{}
 
-	if !GetState(s).RenderPasses().Contains(d.RenderPass()) {
-		return nil, nil, fmt.Errorf("Cannot find Renderpass %v", d.RenderPass())
-	}
-	if !GetState(s).Framebuffers().Contains(d.Framebuffer()) {
-		return nil, nil, fmt.Errorf("Cannot find Framebuffer %v", d.Framebuffer())
+	subpassEndInfo := createVkSubpassEndInfo(d.SubpassEndInfo())
+	subpassEndData := s.AllocDataOrPanic(ctx, subpassEndInfo)
+	mem = append(mem, subpassEndData)
+
+	cleanup := func() {
+		for _, d := range mem {
+			d.Free()
+		}
 	}
 
-	clearValues := make([]VkClearValue, d.ClearValues().Len())
+	cmd := cb.VkCmdEndRenderPass2(
+		commandBuffer,
+		subpassEndData.Ptr(),
+	)
+	for _, d := range mem {
+		cmd.AddRead(d.Data())
+	}
+	return cleanup, cmd, nil
+}
+
+func rebuildVkCmdEndRenderPass2KHR(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdEndRenderPassXArgsʳ) (func(), api.Cmd, error) {
+	mem := []api.AllocResult{}
+
+	subpassEndInfo := createVkSubpassEndInfo(d.SubpassEndInfo())
+	subpassEndData := s.AllocDataOrPanic(ctx, subpassEndInfo)
+	mem = append(mem, subpassEndData)
+
+	cleanup := func() {
+		for _, d := range mem {
+			d.Free()
+		}
+	}
+
+	cmd := cb.VkCmdEndRenderPass2KHR(
+		commandBuffer,
+		subpassEndData.Ptr(),
+	)
+	for _, d := range mem {
+		cmd.AddRead(d.Data())
+	}
+	return cleanup, cmd, nil
+}
+
+func rebuildVkCmdNextSubpassX(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdNextSubpassXArgsʳ) (func(), api.Cmd, error) {
+	switch d.Version() {
+	case RenderPassVersion_RenderPass:
+		return rebuildVkCmdNextSubpass(ctx, cb, commandBuffer, r, s, d)
+	case RenderPassVersion_RenderPass2:
+		return rebuildVkCmdNextSubpass2(ctx, cb, commandBuffer, r, s, d)
+	case RenderPassVersion_RenderPass2KHR:
+		return rebuildVkCmdNextSubpass2KHR(ctx, cb, commandBuffer, r, s, d)
+	default:
+		panic("Unknown renderpass version")
+	}
+}
+
+func rebuildVkCmdNextSubpass(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdNextSubpassXArgsʳ) (func(), api.Cmd, error) {
+	return func() {}, cb.VkCmdNextSubpass(commandBuffer, d.SubpassBeginInfo().Contents()), nil
+}
+
+func rebuildVkCmdNextSubpass2(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdNextSubpassXArgsʳ) (func(), api.Cmd, error) {
+	mem := []api.AllocResult{}
+
+	subpassBeginInfo := createVkSubpassBeginInfo(d.SubpassBeginInfo())
+	subpassBeginData := s.AllocDataOrPanic(ctx, subpassBeginInfo)
+	mem = append(mem, subpassBeginData)
+
+	subpassEndInfo := createVkSubpassEndInfo(d.SubpassEndInfo())
+	subpassEndData := s.AllocDataOrPanic(ctx, subpassEndInfo)
+	mem = append(mem, subpassEndData)
+
+	cleanup := func() {
+		for _, d := range mem {
+			d.Free()
+		}
+	}
+
+	cmd := cb.VkCmdNextSubpass2(
+		commandBuffer,
+		subpassBeginData.Ptr(),
+		subpassEndData.Ptr(),
+	)
+	for _, d := range mem {
+		cmd.AddRead(d.Data())
+	}
+	return cleanup, cmd, nil
+}
+
+func rebuildVkCmdNextSubpass2KHR(
+	ctx context.Context,
+	cb CommandBuilder,
+	commandBuffer VkCommandBuffer,
+	r *api.GlobalState,
+	s *api.GlobalState,
+	d VkCmdNextSubpassXArgsʳ) (func(), api.Cmd, error) {
+	mem := []api.AllocResult{}
+
+	subpassBeginInfo := createVkSubpassBeginInfo(d.SubpassBeginInfo())
+	subpassBeginData := s.AllocDataOrPanic(ctx, subpassBeginInfo)
+	mem = append(mem, subpassBeginData)
+
+	subpassEndInfo := createVkSubpassEndInfo(d.SubpassEndInfo())
+	subpassEndData := s.AllocDataOrPanic(ctx, subpassEndInfo)
+	mem = append(mem, subpassEndData)
+
+	cleanup := func() {
+		for _, d := range mem {
+			d.Free()
+		}
+	}
+
+	cmd := cb.VkCmdNextSubpass2KHR(
+		commandBuffer,
+		subpassBeginData.Ptr(),
+		subpassEndData.Ptr(),
+	)
+	for _, d := range mem {
+		cmd.AddRead(d.Data())
+	}
+	return cleanup, cmd, nil
+}
+
+func createVkRenderPassBeginInfo(
+	ctx context.Context,
+	s *api.GlobalState,
+	renderPassBeginInfo RenderPassBeginInfoʳ) (VkRenderPassBeginInfo, []api.AllocResult, error) {
+	mem := []api.AllocResult{}
+
+	if !GetState(s).RenderPasses().Contains(renderPassBeginInfo.RenderPass()) {
+		return VkRenderPassBeginInfo{}, nil, fmt.Errorf("Cannot find Renderpass %v", renderPassBeginInfo.RenderPass())
+	}
+	if !GetState(s).Framebuffers().Contains(renderPassBeginInfo.Framebuffer()) {
+		return VkRenderPassBeginInfo{}, nil, fmt.Errorf("Cannot find Framebuffer %v", renderPassBeginInfo.Framebuffer())
+	}
+
+	clearValues := make([]VkClearValue, renderPassBeginInfo.ClearValues().Len())
 	for i := range clearValues {
-		clearValues[i] = d.ClearValues().Get(uint32(i))
+		clearValues[i] = renderPassBeginInfo.ClearValues().Get(uint32(i))
 	}
 
 	clearValuesData := s.AllocDataOrPanic(ctx, clearValues)
 	mem = append(mem, clearValuesData)
 	pNext := NewVoidᶜᵖ(memory.Nullptr)
 
-	if !d.DeviceGroupBeginInfo().IsNil() {
-		dgbi := d.DeviceGroupBeginInfo()
+	if !renderPassBeginInfo.DeviceGroupBeginInfo().IsNil() {
+		dgbi := renderPassBeginInfo.DeviceGroupBeginInfo()
 
 		rects := make([]VkRect2D, dgbi.RenderAreas().Len())
 		for i := range rects {
@@ -191,50 +524,31 @@ func rebuildVkCmdBeginRenderPass(
 
 	begin := NewVkRenderPassBeginInfo(
 		VkStructureType_VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO, // sType
-		0,                        // pNext
-		d.RenderPass(),           // renderPass
-		d.Framebuffer(),          // framebuffer
-		d.RenderArea(),           // renderArea
-		uint32(len(clearValues)), // clearValueCount
+		0,                                 // pNext
+		renderPassBeginInfo.RenderPass(),  // renderPass
+		renderPassBeginInfo.Framebuffer(), // framebuffer
+		renderPassBeginInfo.RenderArea(),  // renderArea
+		uint32(len(clearValues)),          // clearValueCount
 		NewVkClearValueᶜᵖ(clearValuesData.Ptr()), // pClearValues
 	)
-	beginData := s.AllocDataOrPanic(ctx, begin)
-	mem = append(mem, beginData)
 
-	cleanup := func() {
-		for _, d := range mem {
-			d.Free()
-		}
-	}
-	cmd := cb.VkCmdBeginRenderPass(
-		commandBuffer,
-		beginData.Ptr(),
-		d.Contents())
-	for _, d := range mem {
-		cmd.AddRead(d.Data())
-	}
-	return cleanup, cmd, nil
+	return begin, mem, nil
 }
 
-func rebuildVkCmdEndRenderPass(
-	ctx context.Context,
-	cb CommandBuilder,
-	commandBuffer VkCommandBuffer,
-	r *api.GlobalState,
-	s *api.GlobalState,
-	d VkCmdEndRenderPassArgsʳ) (func(), api.Cmd, error) {
-
-	return func() {}, cb.VkCmdEndRenderPass(commandBuffer), nil
+func createVkSubpassBeginInfo(subpassBeginInfo SubpassBeginInfoʳ) VkSubpassBeginInfo {
+	return NewVkSubpassBeginInfo(
+		VkStructureType_VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO, // sType
+		0, // pNext
+		subpassBeginInfo.Contents(),
+	)
 }
 
-func rebuildVkCmdNextSubpass(
-	ctx context.Context,
-	cb CommandBuilder,
-	commandBuffer VkCommandBuffer,
-	r *api.GlobalState,
-	s *api.GlobalState,
-	d VkCmdNextSubpassArgsʳ) (func(), api.Cmd, error) {
-	return func() {}, cb.VkCmdNextSubpass(commandBuffer, d.Contents()), nil
+func createVkSubpassEndInfo(unused SubpassEndInfoʳ) VkSubpassEndInfo {
+	_ = unused // SubpassEndInfo is currently empty.
+	return NewVkSubpassEndInfo(
+		VkStructureType_VK_STRUCTURE_TYPE_SUBPASS_END_INFO, // sType
+		0, // pNext
+	)
 }
 
 func rebuildVkCmdBindPipeline(
@@ -296,8 +610,8 @@ func rebuildVkCmdBindDescriptorSets(
 		}
 	}
 
-	descriptorSetData, descriptorSetCount := unpackMap(ctx, s, d.DescriptorSets())
-	dynamicOffsetData, dynamicOffsetCount := unpackMap(ctx, s, d.DynamicOffsets())
+	descriptorSetData, descriptorSetCount := unpackDenseMap(ctx, s, d.DescriptorSets())
+	dynamicOffsetData, dynamicOffsetCount := unpackDenseMap(ctx, s, d.DynamicOffsets())
 
 	return func() {
 			descriptorSetData.Free()
@@ -330,8 +644,8 @@ func rebuildVkCmdBindVertexBuffers(
 		}
 	}
 
-	bufferData, _ := unpackMap(ctx, s, d.Buffers())
-	offsetData, _ := unpackMap(ctx, s, d.Offsets())
+	bufferData, _ := unpackDenseMap(ctx, s, d.Buffers())
+	offsetData, _ := unpackDenseMap(ctx, s, d.Offsets())
 
 	return func() {
 			bufferData.Free()
@@ -373,10 +687,10 @@ func rebuildVkCmdWaitEvents(
 		}
 	}
 
-	eventData, eventCount := unpackMap(ctx, s, d.Events())
-	memoryBarrierData, memoryBarrierCount := unpackMap(ctx, s, d.MemoryBarriers())
-	bufferMemoryBarrierData, bufferMemoryBarrierCount := unpackMap(ctx, s, d.BufferMemoryBarriers())
-	imageMemoryBarrierData, imageMemoryBarrierCount := unpackMap(ctx, s, d.ImageMemoryBarriers())
+	eventData, eventCount := unpackDenseMap(ctx, s, d.Events())
+	memoryBarrierData, memoryBarrierCount := unpackDenseMap(ctx, s, d.MemoryBarriers())
+	bufferMemoryBarrierData, bufferMemoryBarrierCount := unpackDenseMap(ctx, s, d.BufferMemoryBarriers())
+	imageMemoryBarrierData, imageMemoryBarrierCount := unpackDenseMap(ctx, s, d.ImageMemoryBarriers())
 
 	return func() {
 			eventData.Free()
@@ -405,9 +719,9 @@ func rebuildVkCmdPipelineBarrier(
 	s *api.GlobalState,
 	d VkCmdPipelineBarrierArgsʳ) (func(), api.Cmd, error) {
 
-	memoryBarrierData, memoryBarrierCount := unpackMap(ctx, s, d.MemoryBarriers())
-	bufferMemoryBarrierData, bufferMemoryBarrierCount := unpackMap(ctx, s, d.BufferMemoryBarriers())
-	imageMemoryBarrierData, imageMemoryBarrierCount := unpackMap(ctx, s, d.ImageMemoryBarriers())
+	memoryBarrierData, memoryBarrierCount := unpackDenseMap(ctx, s, d.MemoryBarriers())
+	bufferMemoryBarrierData, bufferMemoryBarrierCount := unpackDenseMap(ctx, s, d.BufferMemoryBarriers())
+	imageMemoryBarrierData, imageMemoryBarrierCount := unpackDenseMap(ctx, s, d.ImageMemoryBarriers())
 
 	for i, c := 0, d.BufferMemoryBarriers().Len(); i < c; i++ {
 		buf := d.BufferMemoryBarriers().Get(uint32(i)).Buffer()
@@ -472,7 +786,7 @@ func rebuildVkCmdBlitImage(
 		return nil, nil, fmt.Errorf("Cannot find Image %v", d.DstImage())
 	}
 
-	blitData, blitCount := unpackMap(ctx, s, d.Regions())
+	blitData, blitCount := unpackDenseMap(ctx, s, d.Regions())
 
 	return func() {
 			blitData.Free()
@@ -495,8 +809,8 @@ func rebuildVkCmdClearAttachments(
 	s *api.GlobalState,
 	d VkCmdClearAttachmentsArgsʳ) (func(), api.Cmd, error) {
 
-	clearAttachmentData, clearCount := unpackMap(ctx, s, d.Attachments())
-	rectData, rectCount := unpackMap(ctx, s, d.Rects())
+	clearAttachmentData, clearCount := unpackDenseMap(ctx, s, d.Attachments())
+	rectData, rectCount := unpackDenseMap(ctx, s, d.Rects())
 
 	return func() {
 			clearAttachmentData.Free()
@@ -523,7 +837,7 @@ func rebuildVkCmdClearColorImage(
 
 	colorData := s.AllocDataOrPanic(ctx, d.Color())
 
-	rangeData, rangeCount := unpackMap(ctx, s, d.Ranges())
+	rangeData, rangeCount := unpackDenseMap(ctx, s, d.Ranges())
 
 	return func() {
 			colorData.Free()
@@ -551,7 +865,7 @@ func rebuildVkCmdClearDepthStencilImage(
 
 	depthStencilData := s.AllocDataOrPanic(ctx, d.DepthStencil())
 
-	rangeData, rangeCount := unpackMap(ctx, s, d.Ranges())
+	rangeData, rangeCount := unpackDenseMap(ctx, s, d.Ranges())
 
 	return func() {
 			depthStencilData.Free()
@@ -580,7 +894,7 @@ func rebuildVkCmdCopyBuffer(
 		return nil, nil, fmt.Errorf("Cannot find Buffer %v", d.DstBuffer())
 	}
 
-	regionData, regionCount := unpackMap(ctx, s, d.CopyRegions())
+	regionData, regionCount := unpackDenseMap(ctx, s, d.CopyRegions())
 
 	return func() {
 			regionData.Free()
@@ -605,7 +919,7 @@ func rebuildVkCmdCopyBufferToImage(
 	if !GetState(s).Images().Contains(d.DstImage()) {
 		return nil, nil, fmt.Errorf("Cannot find Image %v", d.DstImage())
 	}
-	regionData, regionCount := unpackMap(ctx, s, d.Regions())
+	regionData, regionCount := unpackDenseMap(ctx, s, d.Regions())
 
 	return func() {
 			regionData.Free()
@@ -631,7 +945,7 @@ func rebuildVkCmdCopyImage(
 	if !GetState(s).Images().Contains(d.DstImage()) {
 		return nil, nil, fmt.Errorf("Cannot find Image %v", d.DstImage())
 	}
-	regionData, regionCount := unpackMap(ctx, s, d.Regions())
+	regionData, regionCount := unpackDenseMap(ctx, s, d.Regions())
 
 	return func() {
 			regionData.Free()
@@ -658,7 +972,7 @@ func rebuildVkCmdCopyImageToBuffer(
 	if !GetState(s).Buffers().Contains(d.DstBuffer()) {
 		return nil, nil, fmt.Errorf("Cannot find Buffer %v", d.DstBuffer())
 	}
-	regionData, regionCount := unpackMap(ctx, s, d.Regions())
+	regionData, regionCount := unpackDenseMap(ctx, s, d.Regions())
 
 	return func() {
 			regionData.Free()
@@ -922,7 +1236,7 @@ func rebuildVkCmdExecuteCommands(
 		}
 	}
 
-	commandBufferData, commandBufferCount := unpackMap(ctx, s, d.CommandBuffers())
+	commandBufferData, commandBufferCount := unpackDenseMap(ctx, s, d.CommandBuffers())
 
 	return func() {
 			commandBufferData.Free()
@@ -1007,7 +1321,7 @@ func rebuildVkCmdResolveImage(
 	if !GetState(s).Images().Contains(d.DstImage()) {
 		return nil, nil, fmt.Errorf("Cannot find Image %v", d.DstImage())
 	}
-	resolveData, resolveCount := unpackMap(ctx, s, d.ResolveRegions())
+	resolveData, resolveCount := unpackDenseMap(ctx, s, d.ResolveRegions())
 
 	return func() {
 			resolveData.Free()
@@ -1107,7 +1421,7 @@ func rebuildVkCmdSetScissor(
 	s *api.GlobalState,
 	d VkCmdSetScissorArgsʳ) (func(), api.Cmd, error) {
 
-	scissorData, scissorCount := unpackMap(ctx, s, d.Scissors())
+	scissorData, scissorCount := unpackDenseMap(ctx, s, d.Scissors())
 
 	return func() {
 			scissorData.Free()
@@ -1171,7 +1485,7 @@ func rebuildVkCmdSetViewport(
 	s *api.GlobalState,
 	d VkCmdSetViewportArgsʳ) (func(), api.Cmd, error) {
 
-	viewportData, viewportCount := unpackMap(ctx, s, d.Viewports())
+	viewportData, viewportCount := unpackDenseMap(ctx, s, d.Viewports())
 
 	return func() {
 			viewportData.Free()
@@ -1431,9 +1745,9 @@ func rebuildVkCmdBindTransformFeedbackBuffersEXT(
 		}
 	}
 
-	bufferData, _ := unpackMap(ctx, s, d.Buffers())
-	offsetData, _ := unpackMap(ctx, s, d.Offsets())
-	sizesData, _ := unpackMap(ctx, s, d.Sizes())
+	bufferData, _ := unpackDenseMap(ctx, s, d.Buffers())
+	offsetData, _ := unpackDenseMap(ctx, s, d.Offsets())
+	sizesData, _ := unpackDenseMap(ctx, s, d.Sizes())
 
 	return func() {
 			bufferData.Free()
@@ -1471,8 +1785,8 @@ func rebuildVkCmdBeginTransformFeedbackEXT(
 		}
 	}
 
-	bufferData, _ := unpackMap(ctx, s, d.CounterBuffers())
-	offsetData, _ := unpackMap(ctx, s, d.CounterBufferOffsets())
+	bufferData, _ := unpackDenseMap(ctx, s, d.CounterBuffers())
+	offsetData, _ := unpackDenseMap(ctx, s, d.CounterBufferOffsets())
 
 	return func() {
 			bufferData.Free()
@@ -1506,8 +1820,8 @@ func rebuildVkCmdEndTransformFeedbackEXT(
 		}
 	}
 
-	bufferData, _ := unpackMap(ctx, s, d.CounterBuffers())
-	offsetData, _ := unpackMap(ctx, s, d.CounterBufferOffsets())
+	bufferData, _ := unpackDenseMap(ctx, s, d.CounterBuffers())
+	offsetData, _ := unpackDenseMap(ctx, s, d.CounterBufferOffsets())
 
 	return func() {
 			bufferData.Free()
@@ -1704,6 +2018,13 @@ func GetCommandArgs(ctx context.Context,
 		return cmds.VkCmdDispatchBaseKHR().Get(cr.MapIndex())
 	case CommandType_cmd_vkCmdDispatchBase:
 		return cmds.VkCmdDispatchBase().Get(cr.MapIndex())
+	// Vulkan 1.2
+	case CommandType_cmd_vkCmdBeginRenderPass2:
+		return cmds.VkCmdBeginRenderPass2().Get(cr.MapIndex())
+	case CommandType_cmd_vkCmdEndRenderPass2:
+		return cmds.VkCmdEndRenderPass2().Get(cr.MapIndex())
+	case CommandType_cmd_vkCmdNextSubpass2:
+		return cmds.VkCmdNextSubpass2().Get(cr.MapIndex())
 	// @extension("VK_EXT_transform_refactor")
 	case CommandType_cmd_vkCmdBindTransformFeedbackBuffersEXT:
 		return cmds.VkCmdBindTransformFeedbackBuffersEXT().Get(cr.MapIndex())
@@ -1717,6 +2038,13 @@ func GetCommandArgs(ctx context.Context,
 		return cmds.VkCmdEndQueryIndexedEXT().Get(cr.MapIndex())
 	case CommandType_cmd_vkCmdDrawIndirectByteCountEXT:
 		return cmds.VkCmdDrawIndirectByteCountEXT().Get(cr.MapIndex())
+	// @extension("VK_KHR_createRenderpass2")
+	case CommandType_cmd_vkCmdBeginRenderPass2KHR:
+		return cmds.VkCmdBeginRenderPass2KHR().Get(cr.MapIndex())
+	case CommandType_cmd_vkCmdEndRenderPass2KHR:
+		return cmds.VkCmdEndRenderPass2KHR().Get(cr.MapIndex())
+	case CommandType_cmd_vkCmdNextSubpass2KHR:
+		return cmds.VkCmdNextSubpass2KHR().Get(cr.MapIndex())
 	default:
 		x := fmt.Sprintf("Should not reach here: %T", cr)
 		panic(x)
@@ -1729,11 +2057,11 @@ func GetCommandArgs(ctx context.Context,
 func GetCommandFunction(cr *CommandReference) interface{} {
 	switch cr.Type() {
 	case CommandType_cmd_vkCmdBeginRenderPass:
-		return subDovkCmdBeginRenderPass
+		return subDovkCmdBeginRenderPassX
 	case CommandType_cmd_vkCmdEndRenderPass:
-		return subDovkCmdEndRenderPass
+		return subDovkCmdEndRenderPassX
 	case CommandType_cmd_vkCmdNextSubpass:
-		return subDovkCmdNextSubpass
+		return subDovkCmdNextSubpassX
 	case CommandType_cmd_vkCmdBindPipeline:
 		return subDovkCmdBindPipeline
 	case CommandType_cmd_vkCmdBindDescriptorSets:
@@ -1844,6 +2172,13 @@ func GetCommandFunction(cr *CommandReference) interface{} {
 		return subDovkCmdDispatchBaseKHR
 	case CommandType_cmd_vkCmdDispatchBase:
 		return subDovkCmdDispatchBase
+	// Vulkan 1.2
+	case CommandType_cmd_vkCmdBeginRenderPass2:
+		return subDovkCmdBeginRenderPassX
+	case CommandType_cmd_vkCmdEndRenderPass2:
+		return subDovkCmdEndRenderPassX
+	case CommandType_cmd_vkCmdNextSubpass2:
+		return subDovkCmdNextSubpassX
 	// @extension("VK_EXT_transform_refactor")
 	case CommandType_cmd_vkCmdBindTransformFeedbackBuffersEXT:
 		return subDovkCmdBindTransformFeedbackBuffersEXT
@@ -1857,6 +2192,13 @@ func GetCommandFunction(cr *CommandReference) interface{} {
 		return subDovkCmdEndQueryIndexedEXT
 	case CommandType_cmd_vkCmdDrawIndirectByteCountEXT:
 		return subDovkCmdDrawIndirectByteCountEXT
+	// @extension("VK_KHR_create_renderpass2")
+	case CommandType_cmd_vkCmdBeginRenderPass2KHR:
+		return subDovkCmdBeginRenderPassX
+	case CommandType_cmd_vkCmdEndRenderPass2KHR:
+		return subDovkCmdEndRenderPassX
+	case CommandType_cmd_vkCmdNextSubpass2KHR:
+		return subDovkCmdNextSubpassX
 	default:
 		x := fmt.Sprintf("Should not reach here: %T", cr)
 		panic(x)
@@ -1875,12 +2217,12 @@ func AddCommand(ctx context.Context,
 	rebuildInfo interface{}) (func(), api.Cmd, error) {
 
 	switch t := rebuildInfo.(type) {
-	case VkCmdBeginRenderPassArgsʳ:
-		return rebuildVkCmdBeginRenderPass(ctx, cb, commandBuffer, r, s, t)
-	case VkCmdEndRenderPassArgsʳ:
-		return rebuildVkCmdEndRenderPass(ctx, cb, commandBuffer, r, s, t)
-	case VkCmdNextSubpassArgsʳ:
-		return rebuildVkCmdNextSubpass(ctx, cb, commandBuffer, r, s, t)
+	case VkCmdBeginRenderPassXArgsʳ:
+		return rebuildVkCmdBeginRenderPassX(ctx, cb, commandBuffer, r, s, t)
+	case VkCmdEndRenderPassXArgsʳ:
+		return rebuildVkCmdEndRenderPassX(ctx, cb, commandBuffer, r, s, t)
+	case VkCmdNextSubpassXArgsʳ:
+		return rebuildVkCmdNextSubpassX(ctx, cb, commandBuffer, r, s, t)
 	case VkCmdBindPipelineArgsʳ:
 		return rebuildVkCmdBindPipeline(ctx, cb, commandBuffer, r, s, t)
 	case VkCmdBindDescriptorSetsArgsʳ:

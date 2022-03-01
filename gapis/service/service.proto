@@ -140,6 +140,7 @@ message Value {
     FramebufferAttachments framebuffer_attachments = 35;
     FramebufferAttachment framebuffer_attachment = 36;
     api.Framegraph framegraph = 37;
+    api.ResourceExtras resource_extras = 39;
 
     image.Info image_info = 40;
 
@@ -190,6 +191,8 @@ message CommandTreeNode {
   uint64 num_commands = 5;
   // these commands can be disabled for experiments.
   repeated path.Command experimental_commands = 6;
+  // For group nodes, whether it should be expanded by default in the UI.
+  bool expand_by_default = 7;
 }
 
 message Commands {
@@ -1046,6 +1049,13 @@ message ProfileExperiments {
 }
 
 message ProfilingData {
+  message Group {
+    int32 id = 1;
+    string name = 2;
+    int32 parent_id = 3;  // references Group.id
+    path.Commands link = 4;
+  }
+
   message GpuSlices {
     message Slice {
       message Extra {
@@ -1064,8 +1074,8 @@ message ProfilingData {
       int32 depth = 5;
       repeated Extra extras = 6;
 
-      int32 trackId = 7;  // references Track.id
-      int32 groupId = 8;  // references Group.id
+      int32 track_id = 7;  // references Track.id
+      int32 group_id = 8;  // references Group.id
     }
 
     message Track {
@@ -1073,16 +1083,8 @@ message ProfilingData {
       string name = 2;
     }
 
-    message Group {
-      int32 id = 1;
-      string name = 2;
-      Group parent = 3;
-      path.Command link = 4;
-    }
-
     repeated Slice slices = 1;
     repeated Track tracks = 2;
-    repeated Group groups = 3;
   }
 
   message Counter {
@@ -1116,6 +1118,7 @@ message ProfilingData {
       // GPU counter group type specified by vendors.
       repeated device.GpuCounterDescriptor.GpuCounterGroup counter_groups = 8;
       double average = 9;
+      bool static_analysis = 10;
     }
 
     // Perf includes a best-guessing performance value and a confidence range.
@@ -1123,14 +1126,14 @@ message ProfilingData {
       double estimate = 1;
       double min = 2;
       double max = 3;
-      map<int32, double> estimateSamples = 4;  // {index} -> {sample weight}
-      map<int32, double> minSamples = 5;       // {index} -> {sample weight}
-      map<int32, double> maxSamples = 6;       // {index} -> {sample weight}
+      map<int32, double> estimate_samples = 4;  // {index} -> {sample weight}
+      map<int32, double> min_samples = 5;       // {index} -> {sample weight}
+      map<int32, double> max_samples = 6;       // {index} -> {sample weight}
     }
 
     // Entry contains performance data for a specific command.
     message Entry {
-      GpuSlices.Group group = 1;
+      int32 group_id = 1;                    // references Group.id
       map<int32, Perf> metric_to_value = 2;  // Metric.id -> perf value.
     }
 
@@ -1138,9 +1141,10 @@ message ProfilingData {
     repeated Entry entries = 2;
   }
 
-  GpuSlices slices = 1;
-  repeated Counter counters = 2;
-  GpuCounters gpu_counters = 3;
+  repeated Group groups = 1;
+  GpuSlices slices = 2;
+  repeated Counter counters = 3;
+  GpuCounters gpu_counters = 4;
 }
 
 message GraphVisualizationRequest {
@@ -1363,8 +1367,7 @@ message TraceOptions {
   float duration = 9;
   // What frames should we insert into the trace
   uint32 observe_frame_frequency = 10;
-  // What draw calls should we insert into the trace
-  uint32 observe_draw_frequency = 11;
+  reserved 11;
   // What frame should we start tracing.
   uint32 start_frame = 12;
   // How many frames should we capture
@@ -1480,14 +1483,23 @@ message ValidateDeviceRequest {
 }
 
 message ValidateDeviceResponse {
-  // Error in validating device.
-  Error error = 1;
+  reserved 1;
+  oneof res {
+    DeviceValidationResult result = 2;
 
-  // Error from downloading trace file.
-  Error download_error = 2;
+    // Internal error from being unable to start validation
+    // (doesn't include failure from the validation itself).
+    Error error = 3;
+  }
+}
 
-  // Path to the perfetto trace file.
-  string trace_path = 3;
+message DeviceValidationResult {
+  // Message with details of how the device failed validation (doesn't
+  // include internal errors where we somehow failed to start validation).
+  string validation_failure_msg = 1;
+
+  // Path to the perfetto trace file to help debug validation issues.
+  string trace_path = 2;
 }
 
 message FuchsiaTraceConfig {

@@ -364,6 +364,11 @@ public class StateView extends Composite
         }
 
         @Override
+        protected boolean isDefaultExpanded(Node element) {
+          return false;
+        }
+
+        @Override
         protected void load(ApiState.Node node, Runnable callback) {
           models.state.load(node, callback);
         }
@@ -392,11 +397,6 @@ public class StateView extends Composite
         }
       }
       return string;
-    }
-
-    @Override
-    protected Color getBackgroundColor(ApiState.Node node) {
-      return null;
     }
 
     @Override

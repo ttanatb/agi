@@ -47,13 +47,13 @@ public class SearchBox extends Composite {
    */
   protected Menu nestedMenu;
 
-  public SearchBox(Composite parent, boolean fireEventOnChange) {
+  public SearchBox(Composite parent, String placeholder, boolean fireEventOnChange) {
     super(parent, SWT.NONE);
     setLayout(new GridLayout(2, false));
 
     Text text = new Text(this, SWT.SINGLE | SWT.SEARCH | SWT.ICON_SEARCH | SWT.ICON_CANCEL);
+    text.setMessage(placeholder);
     Button regex = Widgets.createCheckbox(this, "Regex", true);
-    Menu menu = new Menu(this);
 
     text.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false));
     regex.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false));
@@ -77,11 +77,12 @@ public class SearchBox extends Composite {
   /**
    * A search box widget with nested menu.
    */
-  public SearchBox(Composite parent, boolean fireEventOnChange, Theme theme) {
+  public SearchBox(Composite parent, String placeholder, boolean fireEventOnChange, Theme theme) {
     super(parent, SWT.NONE);
     setLayout(withMargin(new GridLayout(2, false), 0, 0));
 
     Text text = new Text(this, SWT.SINGLE | SWT.SEARCH | SWT.ICON_SEARCH);
+    text.setMessage(placeholder);
     ToolBar toolBar = new ToolBar(this, SWT.FLAT);
     ToolItem toolItem = new ToolItem(toolBar, SWT.PUSH);
     toolItem.setImage(theme.more());
