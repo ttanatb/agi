@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Google Inc.
+ * Copyright (C) 2022 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,137 +61,135 @@ import java.util.concurrent.ExecutionException;
 import java.util.logging.Logger;
 
 public class DeviceValidationView extends Composite {
-    protected static final Logger LOG = Logger.getLogger(DeviceValidationView.class.getName());
+  protected static final Logger LOG = Logger.getLogger(DeviceValidationView.class.getName());
 
-    private final Widgets widgets;
-    private final Models models;
-    private final SingleInFlight rpcController = new SingleInFlight();
-      
-    private boolean validationPassed;
-    private LoadingIndicator.Widget statusLoader;
-    private Link statusText;
+  private final Widgets widgets;
+  private final Models models;
+  private final SingleInFlight rpcController = new SingleInFlight();
+    
+  private boolean validationPassed;
+  private LoadingIndicator.Widget statusLoader;
+  private Link statusText;
 
-    private Group extraDetailsGroup;
-    private Text errText;
-    private Link traceLink;
+  private Group extraDetailsGroup;
+  private Text errText;
+  private Link traceLink;
 
-    public DeviceValidationView(Composite parent, Models models, Widgets widgets) {
-        super(parent, SWT.NONE);
-        this.widgets = widgets;
-        this.models = models;
+  public DeviceValidationView(Composite parent, Models models, Widgets widgets) {
+    super(parent, SWT.NONE);
+    this.widgets = widgets;
+    this.models = models;
 
-        validationPassed = false;
+    validationPassed = false;
 
-        setLayout(new GridLayout(/* numColumns= */ 2, /* makeColumnsEqualWidth= */ false));
-        setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false));
+    setLayout(new GridLayout(/* numColumns= */ 2, /* makeColumnsEqualWidth= */ false));
+    setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false));
 
-        // Status icon (loader) & accompanying text
-        statusLoader = widgets.loading.createWidgetWithImage(this, 
-            widgets.theme.check(), widgets.theme.error());
-        statusLoader.setLayoutData(new GridData(SWT.LEFT, SWT.BOTTOM, false, false));
-        statusText = createLink(this, "", e -> {
-            Program.launch(URLs.DEVICE_COMPATIBILITY_URL);
-        });
-        statusText.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
+    // Status icon (loader) & accompanying text
+    statusLoader = widgets.loading.createWidgetWithImage(this, 
+        widgets.theme.check(), widgets.theme.error());
+    statusLoader.setLayoutData(new GridData(SWT.LEFT, SWT.BOTTOM, false, false));
+    statusText = createLink(this, "", e -> {
+        Program.launch(URLs.DEVICE_COMPATIBILITY_URL);
+    });
+    statusText.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
 
-        // Extra details (i.e. error message & help text)
-        errText = withLayoutData(createTextbox(extraDetailsGroup, ""),
-                     new GridData(SWT.FILL, SWT.FILL, true, true));
-        traceLink = createLink(extraDetailsGroup, "", e -> {
-          // Intentionally empty
-        });
-        traceLink.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
+    // Extra details (i.e. error message & help text)
+    errText = withLayoutData(createTextbox(extraDetailsGroup, ""),
+                  new GridData(SWT.FILL, SWT.FILL, true, true));
+    traceLink = createLink(extraDetailsGroup, "", e -> {
+      // Intentionally empty
+    });
+    traceLink.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
 
-        statusLoader.setVisible(false);
-        statusText.setVisible(false);
-        extraDetailsGroup.setVisible(false);
+    statusLoader.setVisible(false);
+    statusText.setVisible(false);
+    extraDetailsGroup.setVisible(false);
+  }
+
+  public void ValidateDevice(DeviceCaptureInfo deviceInfo) {
+    if (deviceInfo == null) {
+      statusLoader.setVisible(false);
+      statusText.setVisible(false);
+      extraDetailsGroup.setVisible(false);
+      return;
     }
 
-    public void ValidateDevice(DeviceCaptureInfo deviceInfo) {
-      if (deviceInfo == null) {
-        statusLoader.setVisible(false);
-        statusText.setVisible(false);
-        extraDetailsGroup.setVisible(false);
+    ValidateDevice(deviceInfo.device);
+  }
+
+  public void ValidateDevice(Device.Instance dev) {
+    statusLoader.setVisible(true);
+    statusText.setVisible(true);
+
+    DeviceValidationResult cachedResult = models.devices.getCachedValidationStatus(dev);
+    if (cachedResult != null) {
+      if (cachedResult.passed || cachedResult.skipped) {
+        setValidationStatus(cachedResult);
         return;
       }
-
-      ValidateDevice(deviceInfo.device);
     }
 
-    public void ValidateDevice(Device.Instance dev) {
-      statusLoader.setVisible(true);
-      statusText.setVisible(true);
-
-      DeviceValidationResult cachedResult = models.devices.getCachedValidationStatus(dev);
-      if (cachedResult != null) {
-        if (cachedResult.passed || cachedResult.skipped) {
-          setValidationStatus(cachedResult);
-          return;
-        }
-      }
-
-      statusLoader.startLoading();
-      statusText.setText("Device support is being validated");
-      rpcController.start().listen(models.devices.validateDevice(dev),
-          new UiErrorCallback<DeviceValidationResult, DeviceValidationResult, DeviceValidationResult>(
-            statusLoader, LOG) {
-            @Override
-            protected ResultOrError<DeviceValidationResult, DeviceValidationResult> onRpcThread(
-                Rpc.Result<DeviceValidationResult> response)
-                throws RpcException, ExecutionException {
-              try {
-                return success(response.get());
-              } catch (RpcException | ExecutionException e) {
-                throttleLogRpcError(LOG, "LoadData error", e);
-                return error(null);
-              }
-            }
-
-            @Override
-            protected void onUiThreadSuccess(DeviceValidationResult result) {
-              setValidationStatus(result);
-            }
-
-            @Override
-            protected void onUiThreadError(DeviceValidationResult result) {
-              LOG.log(WARNING, "UI thread error while validating device support");
-              setValidationStatus(result);
-            }
-          });
-    }
-
-    private void setValidationStatus(DeviceValidationResult result) {
-      boolean passedOrSkipped = result.passed || result.skipped;
-      statusLoader.stopLoading();
-      statusLoader.updateStatus(passedOrSkipped);
-      validationPassed = passedOrSkipped;
-      statusText.setText("Device support validation " + result.toString() + ".");
-      extraDetailsGroup.setVisible(!passedOrSkipped);
-      notifyListeners(SWT.Modify, new Event());
-
-      if (passedOrSkipped) {
-        return;
-      }
-
-      // TODO: add error text and help text
-
-      for (Listener listener : traceLink.getListeners(SWT.Selection)) {
-        traceLink.removeListener(SWT.Selection, listener);
-      }
-      traceLink.addListener(SWT.Selection, openFileAtPath(result.tracePath));
-    }
-
-    private Listener openFileAtPath(String path) {
-      return e -> {
+    statusLoader.startLoading();
+    statusText.setText("Device support is being validated");
+    rpcController.start().listen(models.devices.validateDevice(dev),
+        new UiErrorCallback<DeviceValidationResult, DeviceValidationResult, DeviceValidationResult>(statusLoader, LOG) {
+      @Override
+      protected ResultOrError<DeviceValidationResult, DeviceValidationResult> 
+        onRpcThread(Rpc.Result<DeviceValidationResult> response) throws RpcException, ExecutionException {
         try {
-          OS.openFileInSystemExplorer(new File(path));
-        } catch (IOException exception) {
-          LOG.log(SEVERE, "Failed to open log directory in system explorer", exception);
+          return success(response.get());
+        } catch (RpcException | ExecutionException e) {
+          throttleLogRpcError(LOG, "LoadData error", e);
+          return error(null);
         }
-      };
+      }
+
+      @Override
+      protected void onUiThreadSuccess(DeviceValidationResult result) {
+        setValidationStatus(result);
+      }
+
+      @Override
+      protected void onUiThreadError(DeviceValidationResult result) {
+        LOG.log(WARNING, "UI thread error while validating device support");
+        setValidationStatus(result);
+      }
+    });
+  }
+
+  private void setValidationStatus(DeviceValidationResult result) {
+    boolean passedOrSkipped = result.passed || result.skipped;
+    statusLoader.stopLoading();
+    statusLoader.updateStatus(passedOrSkipped);
+    validationPassed = passedOrSkipped;
+    statusText.setText("Device support validation " + result.toString() + ".");
+    extraDetailsGroup.setVisible(!passedOrSkipped);
+    notifyListeners(SWT.Modify, new Event());
+
+    if (passedOrSkipped) {
+      return;
     }
 
-    public boolean PassesValidation() {
-      return validationPassed;
+    // TODO: add error text and help text
+
+    for (Listener listener : traceLink.getListeners(SWT.Selection)) {
+      traceLink.removeListener(SWT.Selection, listener);
     }
+    traceLink.addListener(SWT.Selection, openFileAtPath(result.tracePath));
+  }
+
+  private Listener openFileAtPath(String path) {
+    return e -> {
+      try {
+        OS.openFileInSystemExplorer(new File(path));
+      } catch (IOException exception) {
+        LOG.log(SEVERE, "Failed to open log directory in system explorer", exception);
+      }
+    };
+  }
+
+  public boolean PassesValidation() {
+    return validationPassed;
+  }
 }
