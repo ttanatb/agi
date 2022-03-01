@@ -95,23 +95,23 @@ public class DeviceValidationView extends Composite {
     statusText.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
 
     // Extra details (i.e. error message & help text)
-    errText = withLayoutData(createTextbox(extraDetailsGroup, ""),
-                  new GridData(SWT.FILL, SWT.FILL, true, true));
-    traceLink = createLink(extraDetailsGroup, "", e -> {
-      // Intentionally empty
-    });
-    traceLink.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
+    // errText = withLayoutData(createTextbox(extraDetailsGroup, ""),
+    //               new GridData(SWT.FILL, SWT.FILL, true, true));
+    // traceLink = createLink(extraDetailsGroup, "", e -> {
+    //   // Intentionally empty
+    // });
+    // traceLink.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
 
     statusLoader.setVisible(false);
     statusText.setVisible(false);
-    extraDetailsGroup.setVisible(false);
+    // extraDetailsGroup.setVisible(false);
   }
 
   public void ValidateDevice(DeviceCaptureInfo deviceInfo) {
     if (deviceInfo == null) {
       statusLoader.setVisible(false);
       statusText.setVisible(false);
-      extraDetailsGroup.setVisible(false);
+      // extraDetailsGroup.setVisible(false);
       return;
     }
 
@@ -164,7 +164,7 @@ public class DeviceValidationView extends Composite {
     statusLoader.updateStatus(passedOrSkipped);
     validationPassed = passedOrSkipped;
     statusText.setText("Device support validation " + result.toString() + ".");
-    extraDetailsGroup.setVisible(!passedOrSkipped);
+    // extraDetailsGroup.setVisible(!passedOrSkipped);
     notifyListeners(SWT.Modify, new Event());
 
     if (passedOrSkipped) {
@@ -173,10 +173,10 @@ public class DeviceValidationView extends Composite {
 
     // TODO: add error text and help text
 
-    for (Listener listener : traceLink.getListeners(SWT.Selection)) {
-      traceLink.removeListener(SWT.Selection, listener);
-    }
-    traceLink.addListener(SWT.Selection, openFileAtPath(result.tracePath));
+    // for (Listener listener : traceLink.getListeners(SWT.Selection)) {
+    //   traceLink.removeListener(SWT.Selection, listener);
+    // }
+    // traceLink.addListener(SWT.Selection, openFileAtPath(result.tracePath));
   }
 
   private Listener openFileAtPath(String path) {

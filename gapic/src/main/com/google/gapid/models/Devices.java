@@ -430,22 +430,25 @@ public class Devices {
     public static final DeviceValidationResult FAILED = new DeviceValidationResult(null, null, "", false, false);
     public static final DeviceValidationResult SKIPPED = new DeviceValidationResult(null, null, "", true, true);
 
-    public final Service.Error validationErr;
-    public final Service.Error downloadErr;
+    public final Service.Error internalErr;
+    public final String validationFailureMsg;
     public final String tracePath;
     public final boolean passed;
     public final boolean skipped;
 
-    public DeviceValidationResult(Service.Error validationErr, Service.Error downloadErr, String tracePath, boolean passed, boolean skipped) {
-      this.validationErr = validationErr;
-      this.downloadErr = downloadErr;
+    public DeviceValidationResult(Service.Error internalErr, String validationFailureMsg, String tracePath, boolean passed, boolean skipped) {
+      this.internalErr = internalErr;
+      this.validationFailureMsg = validationFailureMsg;
       this.tracePath = tracePath;
       this.passed = passed;
       this.skipped = skipped;
     }
 
     public DeviceValidationResult(Service.ValidateDeviceResponse r) {
-      this(r.getError(), !r.hasError() && r.getResult().getValidationFailureMsg().length() == 0, false);
+      this(r.getError(), 
+           r.getResult() == null ? "" : r.getResult().getValidationFailureMsg(),
+           r.getResult() == null ? "" : r.getResult().getTracePath(),
+           false, false);
     }
 
     @Override
