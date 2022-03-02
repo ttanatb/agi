@@ -445,10 +445,11 @@ public class Devices {
     }
 
     public DeviceValidationResult(Service.ValidateDeviceResponse r) {
-      this(r.getError(), 
+      this(r.hasError() ? r.getError() : null,
            r.getResult() == null ? "" : r.getResult().getValidationFailureMsg(),
            r.getResult() == null ? "" : r.getResult().getTracePath(),
-           false, false);
+           !r.hasError() && r.getResult().getValidationFailureMsg().length() == 0,
+           false);
     }
 
     @Override
@@ -459,6 +460,14 @@ public class Devices {
         return "passed";
       } else {
         return "failed";
+      }
+    }
+
+    public String errorMessage() {
+      if (internalErr != null) {
+        return "Internal Error: " + internalErr.getErrInternal().getMessage();
+      } else {
+        return "Validation Failure: " + validationFailureMsg;
       }
     }
   }

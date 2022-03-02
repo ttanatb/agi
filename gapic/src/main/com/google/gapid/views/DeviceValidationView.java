@@ -18,9 +18,10 @@ package com.google.gapid.views;
 import static com.google.gapid.util.Logging.throttleLogRpcError;
 import static com.google.gapid.widgets.Widgets.createLink;
 import static com.google.gapid.widgets.Widgets.withLayoutData;
+import static com.google.gapid.widgets.Widgets.withSpans;
+import static com.google.gapid.widgets.Widgets.createButton;
+import static com.google.gapid.widgets.Widgets.createLabel;
 import static com.google.gapid.widgets.Widgets.createGroup;
-import static com.google.gapid.widgets.Widgets.createComposite;
-import static com.google.gapid.widgets.Widgets.createTextbox;
 import static java.util.logging.Level.WARNING;
 import static java.util.logging.Level.SEVERE;
 
@@ -44,15 +45,12 @@ import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Listener;
-import org.eclipse.jface.layout.GridDataFactory;
 import org.eclipse.swt.program.Program;
-import org.eclipse.swt.graphics.Point;
+import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Event;
+import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Link;
-import org.eclipse.swt.widgets.Text;
 import org.eclipse.swt.widgets.Group;
-import org.eclipse.swt.widgets.ExpandBar;
-import org.eclipse.swt.widgets.ExpandItem;
 import org.eclipse.swt.SWT;
 
 import java.io.File;
@@ -69,12 +67,10 @@ public class DeviceValidationView extends Composite {
     
   private boolean validationPassed;
   private LoadingIndicator.Widget statusLoader;
-  private Text statusText;
+  private Label statusText;
+  private Button retryButton;
 
   private Group extraDetailsGroup;
-  private Text errText;
-  private Link traceLink;
-  private Link helpLink;
 
   public DeviceValidationView(Composite parent, Models models, Widgets widgets) {
     super(parent, SWT.NONE);
@@ -83,37 +79,29 @@ public class DeviceValidationView extends Composite {
 
     validationPassed = false;
 
-    setLayout(new GridLayout(/* numColumns= */ 2, /* makeColumnsEqualWidth= */ false));
+    setLayout(new GridLayout(/* numColumns= */ 3, /* makeColumnsEqualWidth= */ false));
     setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false));
 
     // Status icon (loader) & accompanying text
     statusLoader = widgets.loading.createWidgetWithImage(this, 
         widgets.theme.check(), widgets.theme.error());
-    statusLoader.setLayoutData(new GridData(SWT.LEFT, SWT.BOTTOM, false, false));
-    statusText = withLayoutData(createTextbox(this, ""), 
-      new GridData(SWT.FILL, SWT.FILL, true, false));
-
-    // Extra details (i.e. error message & help text)
-    extraDetailsGroup = createGroup(this, "");
-    errText = withLayoutData(createTextbox(extraDetailsGroup, ""),
-                  new GridData(SWT.FILL, SWT.FILL, true, true));
-    traceLink = withLayoutData(createLink(extraDetailsGroup, "View <a>trace file</a>", e -> {
-      // Intentionally empty
-    }), new GridData(SWT.FILL, SWT.FILL, true, false));
-    helpLink = withLayoutData(createLink(extraDetailsGroup, Messages.VALIDATION_FAILED_LANDING_PAGE, e -> {
-      Program.launch(URLs.DEVICE_COMPATIBILITY_URL);
-    }), new GridData(SWT.FILL, SWT.FILL, true, false));
+    statusLoader.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+    statusText = withLayoutData(createLabel(this, ""),
+      new GridData(SWT.FILL, SWT.CENTER, true, false));
+    retryButton = withLayoutData(createButton(this, "Retry", e -> {
+      // Intentionally empty.
+    }), new GridData(SWT.FILL, SWT.CENTER, false, false));
 
     statusLoader.setVisible(false);
     statusText.setVisible(false);
-    extraDetailsGroup.setVisible(false);
+    retryButton.setVisible(false);
   }
 
   public void ValidateDevice(DeviceCaptureInfo deviceInfo) {
     if (deviceInfo == null) {
       statusLoader.setVisible(false);
       statusText.setVisible(false);
-      extraDetailsGroup.setVisible(false);
+      retryButton.setVisible(false);
       return;
     }
 
@@ -123,6 +111,12 @@ public class DeviceValidationView extends Composite {
   public void ValidateDevice(Device.Instance dev) {
     statusLoader.setVisible(true);
     statusText.setVisible(true);
+    retryButton.setVisible(false);
+    if (extraDetailsGroup != null) {
+      extraDetailsGroup.dispose();
+      extraDetailsGroup = null;
+      requestLayout();
+    }
 
     DeviceValidationResult cachedResult = models.devices.getCachedValidationStatus(dev);
     if (cachedResult != null) {
@@ -134,10 +128,19 @@ public class DeviceValidationView extends Composite {
 
     statusLoader.startLoading();
     statusText.setText("Device support is being validated");
+
+    // Assign appropriate callback for retry button.
+    for (Listener listener : retryButton.getListeners(SWT.Selection)) {
+      retryButton.removeListener(SWT.Selection, listener);
+    }
+    retryButton.addListener(SWT.Selection, e -> {
+      ValidateDevice(dev);
+    });
+
     rpcController.start().listen(models.devices.validateDevice(dev),
         new UiErrorCallback<DeviceValidationResult, DeviceValidationResult, DeviceValidationResult>(statusLoader, LOG) {
       @Override
-      protected ResultOrError<DeviceValidationResult, DeviceValidationResult> 
+      protected ResultOrError<DeviceValidationResult, DeviceValidationResult>
         onRpcThread(Rpc.Result<DeviceValidationResult> response) throws RpcException, ExecutionException {
         try {
           return success(response.get());
@@ -166,28 +169,33 @@ public class DeviceValidationView extends Composite {
     statusLoader.updateStatus(passedOrSkipped);
     validationPassed = passedOrSkipped;
     statusText.setText("Device support validation " + result.toString() + ".");
-    extraDetailsGroup.setVisible(!passedOrSkipped);
     notifyListeners(SWT.Modify, new Event());
 
     if (passedOrSkipped) {
       return;
     }
 
-    errText.setText(result.validationFailureMsg);
-    for (Listener listener : traceLink.getListeners(SWT.Selection)) {
-      traceLink.removeListener(SWT.Selection, listener);
-    }
-    traceLink.addListener(SWT.Selection, openFileAtPath(result.tracePath));
-  }
+    // Extra details (i.e. error message & help text)
+    retryButton.setVisible(true);
 
-  private Listener openFileAtPath(String path) {
-    return e -> {
-      try {
-        OS.openFileInSystemExplorer(new File(path));
-      } catch (IOException exception) {
-        LOG.log(SEVERE, "Failed to open log directory in system explorer", exception);
-      }
-    };
+    extraDetailsGroup = withLayoutData(createGroup(this, ""),
+      withSpans(new GridData(SWT.FILL, SWT.FILL, true, false), 3, 1));
+    Label errText = withLayoutData(createLabel(extraDetailsGroup, result.errorMessage()),
+      new GridData(SWT.FILL, SWT.FILL, true, false));
+    Link helpLink = withLayoutData(createLink(extraDetailsGroup, Messages.VALIDATION_FAILED_LANDING_PAGE, e -> {
+      Program.launch(URLs.DEVICE_COMPATIBILITY_URL);
+    }), new GridData(SWT.LEFT, SWT.FILL, true, false));
+    if (result.tracePath.length() > 0) {
+      Link traceLink = withLayoutData(createLink(extraDetailsGroup, "View <a>trace file</a>", e -> {
+        try {
+          OS.openFileInSystemExplorer(new File(result.tracePath));
+        } catch (IOException exception) {
+          LOG.log(SEVERE, "Failed to open log directory in system explorer", exception);
+        }
+      }), new GridData(SWT.RIGHT, SWT.FILL, false, false));
+    }
+
+    requestLayout();
   }
 
   public boolean PassesValidation() {
