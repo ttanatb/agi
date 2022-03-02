@@ -69,11 +69,12 @@ public class DeviceValidationView extends Composite {
     
   private boolean validationPassed;
   private LoadingIndicator.Widget statusLoader;
-  private Link statusText;
+  private Text statusText;
 
   private Group extraDetailsGroup;
   private Text errText;
   private Link traceLink;
+  private Link helpLink;
 
   public DeviceValidationView(Composite parent, Models models, Widgets widgets) {
     super(parent, SWT.NONE);
@@ -89,29 +90,30 @@ public class DeviceValidationView extends Composite {
     statusLoader = widgets.loading.createWidgetWithImage(this, 
         widgets.theme.check(), widgets.theme.error());
     statusLoader.setLayoutData(new GridData(SWT.LEFT, SWT.BOTTOM, false, false));
-    statusText = createLink(this, "", e -> {
-        Program.launch(URLs.DEVICE_COMPATIBILITY_URL);
-    });
-    statusText.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
+    statusText = withLayoutData(createTextbox(this, ""), 
+      new GridData(SWT.FILL, SWT.FILL, true, false));
 
     // Extra details (i.e. error message & help text)
-    // errText = withLayoutData(createTextbox(extraDetailsGroup, ""),
-    //               new GridData(SWT.FILL, SWT.FILL, true, true));
-    // traceLink = createLink(extraDetailsGroup, "", e -> {
-    //   // Intentionally empty
-    // });
-    // traceLink.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, false));
+    extraDetailsGroup = createGroup(this, "");
+    errText = withLayoutData(createTextbox(extraDetailsGroup, ""),
+                  new GridData(SWT.FILL, SWT.FILL, true, true));
+    traceLink = withLayoutData(createLink(extraDetailsGroup, "View <a>trace file</a>", e -> {
+      // Intentionally empty
+    }), new GridData(SWT.FILL, SWT.FILL, true, false));
+    helpLink = withLayoutData(createLink(extraDetailsGroup, Messages.VALIDATION_FAILED_LANDING_PAGE, e -> {
+      Program.launch(URLs.DEVICE_COMPATIBILITY_URL);
+    }), new GridData(SWT.FILL, SWT.FILL, true, false));
 
     statusLoader.setVisible(false);
     statusText.setVisible(false);
-    // extraDetailsGroup.setVisible(false);
+    extraDetailsGroup.setVisible(false);
   }
 
   public void ValidateDevice(DeviceCaptureInfo deviceInfo) {
     if (deviceInfo == null) {
       statusLoader.setVisible(false);
       statusText.setVisible(false);
-      // extraDetailsGroup.setVisible(false);
+      extraDetailsGroup.setVisible(false);
       return;
     }
 
@@ -164,19 +166,18 @@ public class DeviceValidationView extends Composite {
     statusLoader.updateStatus(passedOrSkipped);
     validationPassed = passedOrSkipped;
     statusText.setText("Device support validation " + result.toString() + ".");
-    // extraDetailsGroup.setVisible(!passedOrSkipped);
+    extraDetailsGroup.setVisible(!passedOrSkipped);
     notifyListeners(SWT.Modify, new Event());
 
     if (passedOrSkipped) {
       return;
     }
 
-    // TODO: add error text and help text
-
-    // for (Listener listener : traceLink.getListeners(SWT.Selection)) {
-    //   traceLink.removeListener(SWT.Selection, listener);
-    // }
-    // traceLink.addListener(SWT.Selection, openFileAtPath(result.tracePath));
+    errText.setText(result.validationFailureMsg);
+    for (Listener listener : traceLink.getListeners(SWT.Selection)) {
+      traceLink.removeListener(SWT.Selection, listener);
+    }
+    traceLink.addListener(SWT.Selection, openFileAtPath(result.tracePath));
   }
 
   private Listener openFileAtPath(String path) {
