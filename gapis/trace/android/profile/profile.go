@@ -34,10 +34,11 @@ const (
 )
 
 type ProfilingData struct {
-	Groups      *GroupTree
-	Slices      SliceData
-	Counters    []*service.ProfilingData_Counter
-	GpuCounters *service.ProfilingData_GpuCounters
+	Groups        *GroupTree
+	Slices        SliceData
+	Counters      []*service.ProfilingData_Counter
+	GpuCounters   *service.ProfilingData_GpuCounters
+	CounterGroups []*service.ProfilingData_CounterGroup
 }
 
 func NewProfilingData() *ProfilingData {
@@ -112,8 +113,9 @@ func setTimeMetrics(ctx context.Context, groupToSlices map[int32][]*Slice,
 		Name:            "GPU Time",
 		Unit:            strconv.Itoa(int(device.GpuCounterDescriptor_NANOSECOND)),
 		Op:              service.ProfilingData_GpuCounters_Metric_Summation,
-		Description:     "GPU Time",
+		Description:     "Total time spent on the GPU, computed by summing the duration of all the GPU activity slices.",
 		SelectByDefault: true,
+		Type:            service.ProfilingData_GpuCounters_Metric_Hardware,
 	}
 	*metrics = append(*metrics, gpuTimeMetric)
 	wallTimeMetric := &service.ProfilingData_GpuCounters_Metric{
@@ -121,8 +123,9 @@ func setTimeMetrics(ctx context.Context, groupToSlices map[int32][]*Slice,
 		Name:            "GPU Wall Time",
 		Unit:            strconv.Itoa(int(device.GpuCounterDescriptor_NANOSECOND)),
 		Op:              service.ProfilingData_GpuCounters_Metric_Summation,
-		Description:     "GPU Wall Time",
-		SelectByDefault: true,
+		Description:     "Total wall time spent on the GPU, computed by summing the duration of all the GPU activity slices, but accounting for overlapping slices.",
+		SelectByDefault: false,
+		Type:            service.ProfilingData_GpuCounters_Metric_Hardware,
 	}
 	*metrics = append(*metrics, wallTimeMetric)
 	gpuTimeSum, wallTimeSum := float64(0), float64(0)
@@ -186,11 +189,9 @@ func setGpuCounterMetrics(ctx context.Context, groupToSlices map[int32][]*Slice,
 		op := getCounterAggregationMethod(counter)
 		description := ""
 		selectByDefault := false
-		counterGroups := []device.GpuCounterDescriptor_GpuCounterGroup{}
 		if counter.Spec != nil {
 			description = counter.Spec.Description
 			selectByDefault = counter.Spec.SelectByDefault
-			counterGroups = counter.Spec.Groups
 		}
 		counterMetric := &service.ProfilingData_GpuCounters_Metric{
 			Id:              metricId,
@@ -200,7 +201,6 @@ func setGpuCounterMetrics(ctx context.Context, groupToSlices map[int32][]*Slice,
 			Op:              op,
 			Description:     description,
 			SelectByDefault: selectByDefault,
-			CounterGroups:   counterGroups,
 		}
 		*metrics = append(*metrics, counterMetric)
 		if op != service.ProfilingData_GpuCounters_Metric_TimeWeightedAvg {
@@ -352,15 +352,22 @@ func (pd *ProfilingData) MergeStaticAnalysis(ctx context.Context, staticAnalysis
 			Description: counter.Description,
 			Unit:        counter.Unit,
 		})
+		var counterType service.ProfilingData_GpuCounters_Metric_Type
+		switch counter.Type {
+		case api.CounterType_Ranged:
+			counterType = service.ProfilingData_GpuCounters_Metric_StaticAnalysisRanged
+		case api.CounterType_Summed:
+			counterType = service.ProfilingData_GpuCounters_Metric_StaticAnalysisSummed
+		}
 
 		pd.GpuCounters.Metrics = append(pd.GpuCounters.Metrics, &service.ProfilingData_GpuCounters_Metric{
-			Id:             counterMetricIdOffset + int32(counterOffset+counter.ID),
-			CounterId:      counterOffset + counter.ID,
-			Name:           counter.Name,
-			Unit:           counter.Unit,
-			Op:             service.ProfilingData_GpuCounters_Metric_TimeWeightedAvg,
-			Description:    counter.Description,
-			StaticAnalysis: true,
+			Id:          counterMetricIdOffset + int32(counterOffset+counter.ID),
+			CounterId:   counterOffset + counter.ID,
+			Name:        counter.Name,
+			Unit:        counter.Unit,
+			Op:          service.ProfilingData_GpuCounters_Metric_TimeWeightedAvg,
+			Description: counter.Description,
+			Type:        counterType,
 		})
 	}
 

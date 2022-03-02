@@ -169,10 +169,11 @@ func (t *androidTracer) ProcessProfilingData(ctx context.Context, buffer *bytes.
 	}
 
 	return &service.ProfilingData{
-		Groups:      data.Groups.Flatten(capture),
-		Slices:      data.Slices.ToService(ctx, processor),
-		Counters:    data.Counters,
-		GpuCounters: data.GpuCounters,
+		Groups:        data.Groups.Flatten(capture),
+		Slices:        data.Slices.ToService(ctx, processor),
+		Counters:      data.Counters,
+		GpuCounters:   data.GpuCounters,
+		CounterGroups: data.CounterGroups,
 	}, nil
 }
 
@@ -274,7 +275,6 @@ func (t *androidTracer) Validate(ctx context.Context, enableLocalFiles bool) (*s
 			traceLoadingErr = log.Err(ctx, err, "Failed to initialize the perfetto processor")
 			return
 		}
-		defer processor.Close()
 
 		file, err := os.OpenFile(temp.System(), os.O_APPEND|os.O_WRONLY, fs.ModeAppend)
 		if err != nil {
@@ -296,6 +296,7 @@ func (t *androidTracer) Validate(ctx context.Context, enableLocalFiles bool) (*s
 	res := &service.DeviceValidationResult{
 		TracePath: temp.System(),
 	}
+	defer processor.Close()
 	ctx = status.Start(ctx, "Validation")
 	defer status.Finish(ctx)
 
