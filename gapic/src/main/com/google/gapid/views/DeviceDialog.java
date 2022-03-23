@@ -57,6 +57,7 @@ import org.eclipse.swt.program.Program;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
+import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Group;
 import org.eclipse.swt.widgets.Listener;
 import org.eclipse.swt.widgets.Label;
@@ -183,6 +184,7 @@ public class DeviceDialog implements Devices.Listener, Capture.Listener {
     @Override
     protected Control createDialogArea(Composite parent) {
       Composite composite = (Composite) super.createDialogArea(parent);
+      Display display = getShell().getDisplay();
 
       // Recap capture info
       createLabel(composite, "Capture name: " + models.capture.getName());
@@ -192,7 +194,7 @@ public class DeviceDialog implements Devices.Listener, Capture.Listener {
 
       // Warning when no compatible device found
       noCompatibleDeviceFound = createLabel(composite, Messages.SELECT_DEVICE_NO_COMPATIBLE_FOUND);
-      noCompatibleDeviceFound.setForeground(theme.deviceNotFound());
+      noCompatibleDeviceFound.setForeground(display.getSystemColor(SWT.COLOR_RED));
 
       // Replay device tables
 
@@ -247,7 +249,8 @@ public class DeviceDialog implements Devices.Listener, Capture.Listener {
       Widgets.createTableColumn(incompatibleDeviceTable, "GPU", dev -> ((ReplayDeviceInfo)dev).instance.getConfiguration().getHardware().getGPU().getName());
       Widgets.createTableColumn(incompatibleDeviceTable, "Driver version", dev -> Devices.getDriverVersion(((ReplayDeviceInfo)dev).instance));
       Widgets.createTableColumn(incompatibleDeviceTable, "Incompatibility", dev -> Strings.getMessage(((ReplayDeviceInfo)dev).reason));
-      incompatibleDeviceTable.getTable().setBackground(theme.invalidDeviceBackground());
+      incompatibleDeviceTable.getTable().setBackground(display.getSystemColor(SWT.COLOR_TITLE_INACTIVE_BACKGROUND));
+      incompatibleDeviceTable.getTable().setEnabled(false);
 
       // Refresh button
       refreshDeviceButton = Widgets.createButton(composite, Messages.SELECT_DEVICE_REFRESH_TABLE,

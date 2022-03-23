@@ -81,6 +81,7 @@ import org.eclipse.jface.viewers.StructuredSelection;
 import org.eclipse.jface.window.Window;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.StackLayout;
+import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
@@ -91,6 +92,7 @@ import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.DirectoryDialog;
+import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Event;
 import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Group;
@@ -617,31 +619,34 @@ public class TracerDialog {
 
         TraceType type = getSelectedType();
         DeviceCaptureInfo dev = getSelectedDevice();
+        Display display = getShell().getDisplay();
+        Color filledInput = display.getSystemColor(SWT.COLOR_LIST_FOREGROUND);
+        Color missingInput = display.getSystemColor(SWT.COLOR_RED);
 
         if (type == null) {
-          apiLabel.setForeground(theme.missingInput());
-          deviceLabel.setForeground(theme.missingInput());
-          targetLabel.setForeground(theme.filledInput());
+          apiLabel.setForeground(missingInput);
+          deviceLabel.setForeground(missingInput);
+          targetLabel.setForeground(filledInput);
         } else {
-          apiLabel.setForeground(theme.filledInput());
+          apiLabel.setForeground(filledInput);
 
           Service.TraceTypeCapabilities config = (dev == null) ? null : type.getCapabilities(dev);
           if (config == null) {
-            deviceLabel.setForeground(theme.missingInput());
-            targetLabel.setForeground(theme.filledInput());
+            deviceLabel.setForeground(missingInput);
+            targetLabel.setForeground(filledInput);
           } else {
-            deviceLabel.setForeground(theme.filledInput());
+            deviceLabel.setForeground(filledInput);
             targetLabel.setForeground(
                 (config.getRequiresApplication() && traceTarget.getText().isEmpty()) ?
-                    theme.missingInput() : theme.filledInput());
+                    missingInput : filledInput);
           }
         }
 
         requiredFieldMessage.setVisible(!isInputReady(type, dev));
         directoryLabel.setForeground(
-            directory.getText().isEmpty() ? theme.missingInput() : theme.filledInput());
+            directory.getText().isEmpty() ? missingInput : filledInput);
         fileLabel.setForeground(
-            file.getText().isEmpty() ? theme.missingInput() : theme.filledInput());
+            file.getText().isEmpty() ? missingInput : filledInput);
       }
 
       private static ComboViewer createDeviceDropDown(Composite parent) {
