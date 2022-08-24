@@ -70,6 +70,170 @@ func main() {
 	app.Run(run)
 }
 
+type testBigStruct struct {
+    a1  int64
+    a2  int64
+    a3  int64
+    a4  int64
+    a5  int64
+    a6  int64
+    a7  int64
+    a8  int64
+    a9  int64
+    a0  int64
+	aa1  int64
+    aa2  int64
+    aa3  int64
+    aa4  int64
+    aa5  int64
+    aa6  int64
+    aa7  int64
+    aa8  int64
+    aa9  int64
+    aa0  int64
+	ba1  int64
+    ba2  int64
+    ba3  int64
+    ba4  int64
+    ba5  int64
+    ba6  int64
+    ba7  int64
+    ba8  int64
+    ba9  int64
+    ba0  int64
+	baa1  int64
+    baa2  int64
+    baa3  int64
+    baa4  int64
+    baa5  int64
+    baa6  int64
+    baa7  int64
+    baa8  int64
+    baa9  int64
+    baa0  int64
+	ca1  int64
+    ca2  int64
+    ca3  int64
+    ca4  int64
+    ca5  int64
+    ca6  int64
+    ca7  int64
+    ca8  int64
+    ca9  int64
+    ca0  int64
+	caa1  int64
+    caa2  int64
+    caa3  int64
+    caa4  int64
+    caa5  int64
+    caa6  int64
+    caa7  int64
+    caa8  int64
+    caa9  int64
+    caa0  int64
+	cba1  int64
+    cba2  int64
+    cba3  int64
+    cba4  int64
+    cba5  int64
+    cba6  int64
+    cba7  int64
+    cba8  int64
+    cba9  int64
+    cba0  int64
+	cbaa1  int64
+    cbaa2  int64
+    cbaa3  int64
+    cbaa4  int64
+    cbaa5  int64
+    cbaa6  int64
+    cbaa7  int64
+    cbaa8  int64
+    cbaa9  int64
+    cbaa0  int64
+	
+	da1  int64
+    da2  int64
+    da3  int64
+    da4  int64
+    da5  int64
+    da6  int64
+    da7  int64
+    da8  int64
+    da9  int64
+    da0  int64
+	daa1  int64
+    daa2  int64
+    daa3  int64
+    daa4  int64
+    daa5  int64
+    daa6  int64
+    daa7  int64
+    daa8  int64
+    daa9  int64
+    daa0  int64
+	dba1  int64
+    dba2  int64
+    dba3  int64
+    dba4  int64
+    dba5  int64
+    dba6  int64
+    dba7  int64
+    dba8  int64
+    dba9  int64
+    dba0  int64
+	dbaa1  int64
+    dbaa2  int64
+    dbaa3  int64
+    dbaa4  int64
+    dbaa5  int64
+    dbaa6  int64
+    dbaa7  int64
+    dbaa8  int64
+    dbaa9  int64
+    dbaa0  int64
+	dca1  int64
+    dca2  int64
+    dca3  int64
+    dca4  int64
+    dca5  int64
+    dca6  int64
+    dca7  int64
+    dca8  int64
+    dca9  int64
+    dca0  int64
+	dcaa1  int64
+    dcaa2  int64
+    dcaa3  int64
+    dcaa4  int64
+    dcaa5  int64
+    dcaa6  int64
+    dcaa7  int64
+    dcaa8  int64
+    dcaa9  int64
+    dcaa0  int64
+	dcba1  int64
+    dcba2  int64
+    dcba3  int64
+    dcba4  int64
+    dcba5  int64
+    dcba6  int64
+    dcba7  int64
+    dcba8  int64
+    dcba9  int64
+    dcba0  int64
+	dcbaa1  int64
+    dcbaa2  int64
+    dcbaa3  int64
+    dcbaa4  int64
+    dcbaa5  int64
+    dcbaa6  int64
+    dcbaa7  int64
+    dcbaa8  int64
+    dcbaa9  int64
+    dcbaa0  int64
+}
+
 // features is the reported list of features supported by the server.
 // This feature list can be used by the client to determine what new RPCs can be
 // called.
@@ -86,6 +250,8 @@ func addFallbackLogHandler(b *log.Broadcaster, fallback log.Handler) {
 }
 
 func run(ctx context.Context) error {
+	log.I(ctx, "%+v", testBigStruct{})
+
 	logBroadcaster := log.Broadcast()
 	if oldHandler, oldWasDefault := app.LogHandler.SetTarget(logBroadcaster, false); oldWasDefault {
 		addFallbackLogHandler(logBroadcaster, oldHandler)
