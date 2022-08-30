@@ -62,6 +62,7 @@ func NewWithListener(ctx context.Context, l net.Listener, cfg Config, srvChan ch
 
 	done := make(chan error)
 	ctx, stop := task.WithCancel(ctx)
+	log.I(ctx, "Gapis Version (%v)", app.Version)
 	crash.Go(func() {
 		done <- grpcutil.ServeWithListener(ctx, l, func(ctx context.Context, listener net.Listener, server *grpc.Server) error {
 			if addr, ok := listener.Addr().(*net.TCPAddr); ok {
